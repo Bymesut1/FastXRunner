@@ -282,9 +282,9 @@ class Game(private val prefs: SharedPreferences) {
         state = State.SETTINGS
     }
     @Synchronized fun closeSettings() { state = if (settingsFromMenu) State.MENU else State.PAUSED }
-    @Synchronized fun setWeather(v: Int) { weather = v; applyLevel(); save() }
-    @Synchronized fun setGround(v: Int) { ground = v; save() }
-    @Synchronized fun setReflect(v: Boolean) { reflect = v; save() }
+    @Synchronized @JvmName("applyWeatherSetting") fun setWeather(v: Int) { weather = v; applyLevel(); save() }
+    @Synchronized @JvmName("applyGroundSetting") fun setGround(v: Int) { ground = v; save() }
+    @Synchronized @JvmName("applyReflectSetting") fun setReflect(v: Boolean) { reflect = v; save() }
     fun quitApp() { onExit?.invoke() }
 
     // oyun döngüsü

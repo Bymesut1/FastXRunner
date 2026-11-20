@@ -15,6 +15,14 @@ jobs:
       - uses: gradle/actions/setup-gradle@v3
         with:
           gradle-version: 8.7
+      - name: Prepare icon
+        run: |
+          [ -f icon.png ] || convert -size 1024x1024 xc:'#d41f2a' icon.png
+          for s in "mdpi 48" "hdpi 72" "xhdpi 96" "xxhdpi 144" "xxxhdpi 192"; do
+            set -- $s
+            mkdir -p app/src/main/res/mipmap-$1
+            convert icon.png -resize $2x$2 app/src/main/res/mipmap-$1/ic_launcher.png || cp icon.png app/src/main/res/mipmap-$1/ic_launcher.png
+          done
       - name: Build debug APK
         run: gradle assembleDebug --no-daemon
       - uses: actions/upload-artifact@v4

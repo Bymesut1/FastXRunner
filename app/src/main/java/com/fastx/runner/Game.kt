@@ -4,7 +4,7 @@ import android.content.SharedPreferences
 import kotlin.math.*
 import kotlin.random.Random
 
-enum class State { MENU, GARAGE, COUNTDOWN, RACING, RESULT }
+enum class State { MENU, GARAGE, COUNTDOWN, RACING, RESULT, PAUSED, SETTINGS }
 
 class CarSpec(
     val name: String, val price: Int, val top: Float, val accel: Float, val handling: Float,
@@ -78,7 +78,59 @@ class Game(private val prefs: SharedPreferences) {
     val upg = IntArray(3) { prefs.getInt("upg$it", 0) }
     val stars = IntArray(MAX_LEVEL + 2) { prefs.getInt("st$it", 0) }
 
-    val theme: Theme get() = THEMES[(level - 1) % THEMES.size]
+    // ayarlar
+    var weather = prefs.getInt("weather", 0)   // 0 otomatik, 1 güneşli, 2 yağmurlu
+    var ground = prefs.getInt("ground", 0)     // 0 otomatik, 1 normal, 2 ıslak
+    var reflect = prefs.getBoolean("reflect", true)
+    @Volatile var settingsFromMenu = true
+    private var pausedFrom = State.RACING
+    var onExit: (() -> Unit)? = null
+
+    private var thCache: Theme? = null
+    private var thKey = -1
+    val theme: Theme
+        get() {
+            val key = ((level - 1) % THEMES.size) * 10 + weather
+            var t = thCache
+            if (t == null || key != thKey) {
+                t = buildTheme()
+                thCache = t
+                thKey = key
+            }
+            return t
+        }
+
+    private fun buildTheme(): Theme {
+        val b = THEMES[(level - 1) % THEMES.size]
+        return when (weather) {
+            1 -> Theme(b.name, b.place, f3(0.2f, 0.42f, 0.85f), f3(0.9f, 0.82f, 0.7f),
+                f3(-0.35f, 0.55f, 0.75f), f3(4.8f, 3.8f, 2.6f),
+                if (b.night > 0.3f) f3(0.22f, 0.27f, 0.18f) else b.gnd,
+                0.0018f, 0f, 0f, false, 0.25f, b.terrain, b.kind, f3(1.05f, 1f, 0.93f))
+            2 -> if (b.night > 0.5f)
+                Theme(b.name, b.place, b.skyTop, b.skyHor, b.sunDir, b.sunCol, b.gnd,
+                    max(b.fog, 0.0045f), b.night, 1f, true, 1f, b.terrain, b.kind, b.grade)
+            else
+                Theme(b.name, b.place, f3(0.12f, 0.14f, 0.19f), f3(0.38f, 0.41f, 0.46f),
+                    f3(0.3f, 0.5f, 0.8f), f3(0.6f, 0.6f, 0.68f),
+                    f3(b.gnd[0] * 0.6f, b.gnd[1] * 0.6f, b.gnd[2] * 0.6f),
+                    0.0045f, 0.2f, 1f, true, 1f, b.terrain, b.kind, f3(0.95f, 1f, 1.06f))
+            else -> b
+        }
+    }
+
+    val wetValue: Float
+        get() = when (ground) {
+            1 -> 0f
+            2 -> 1f
+            else -> if (theme.rain) 1f else theme.wet
+        }
+
+    val menuLike: Boolean
+        get() = state == State.MENU || state == State.GARAGE || (state == State.SETTINGS && settingsFromMenu)
+    val menuView: Boolean
+        get() = state == State.MENU || (state == State.SETTINGS && settingsFromMenu)
+
     val shownCar: Int get() = if (state == State.GARAGE) viewCar else carSel
 
     // pist
@@ -178,6 +230,7 @@ class Game(private val prefs: SharedPreferences) {
         e.putInt("coins", coins).putInt("maxLevel", maxLevel).putInt("car", carSel).putInt("owned", owned)
         for (i in 0..2) e.putInt("upg$i", upg[i])
         for (i in stars.indices) e.putInt("st$i", stars[i])
+        e.putInt("weather", weather).putInt("ground", ground).putBoolean("reflect", reflect)
         e.apply()
     }
 
@@ -185,7 +238,7 @@ class Game(private val prefs: SharedPreferences) {
     @Synchronized fun toMenu() {
         state = State.MENU; speed = 0f; z = 0f; ox = 0f; ovx = 0f
         traffic.clear(); coinList.clear(); nitroOn = false; left = false; right = false
-        nitBtn = false; braking = false; applyLevel()
+        nitBtn = false; braking = false; skid = false; scrape = false; applyLevel()
     }
     @Synchronized fun openGarage() { viewCar = carSel; state = State.GARAGE }
     @Synchronized fun changeLevel(d: Int) { level = (level + d).coerceIn(1, maxLevel); applyLevel() }
@@ -215,6 +268,25 @@ class Game(private val prefs: SharedPreferences) {
         msg = ""; left = false; right = false; nitBtn = false; braking = false
     }
 
+    @Synchronized fun pause() {
+        if (state == State.RACING || state == State.COUNTDOWN) {
+            pausedFrom = state
+            state = State.PAUSED
+            left = false; right = false; nitBtn = false; braking = false
+            nitroOn = false; skid = false; scrape = false
+        }
+    }
+    @Synchronized fun resume() { if (state == State.PAUSED) state = pausedFrom }
+    @Synchronized fun openSettings() {
+        settingsFromMenu = (state == State.MENU)
+        state = State.SETTINGS
+    }
+    @Synchronized fun closeSettings() { state = if (settingsFromMenu) State.MENU else State.PAUSED }
+    @Synchronized fun setWeather(v: Int) { weather = v; applyLevel(); save() }
+    @Synchronized fun setGround(v: Int) { ground = v; save() }
+    @Synchronized fun setReflect(v: Boolean) { reflect = v; save() }
+    fun quitApp() { onExit?.invoke() }
+
     // oyun döngüsü
     @Synchronized fun update(dtIn: Float) {
         val dt = dtIn.coerceIn(0.001f, 0.05f)
@@ -232,6 +304,14 @@ class Game(private val prefs: SharedPreferences) {
                 speed = 0f; rpm = 1000f; load = 0.2f
                 nitroOn = false; skid = false; scrape = false
             }
+            State.SETTINGS -> {
+                if (settingsFromMenu) {
+                    garageAngle += dt * 0.5f
+                    speed = 0f; rpm = 1000f; load = 0.2f
+                    nitroOn = false; skid = false; scrape = false
+                }
+            }
+            State.PAUSED -> { }
             State.COUNTDOWN -> {
                 val before = ceil(cd).toInt()
                 cd -= dt
@@ -270,8 +350,8 @@ class Game(private val prefs: SharedPreferences) {
         else nitro = min(100f, nitro + (2f + 0.8f * nit) * dt)
         nitro = nitro.coerceIn(0f, 100f)
 
-        // yanal hareket
-        val st = (if (right) 1f else 0f) - (if (left) 1f else 0f)
+        // yanal hareket (sol tuş = ekranda sola)
+        val st = (if (left) 1f else 0f) - (if (right) 1f else 0f)
         steer += (st - steer) * min(1f, dt * 7f)
         val lim = (6.2f + 0.8f * han) * (1f - 0.30f * (speed / (spec.top * 1.2f)).coerceIn(0f, 1f))
         ovx += (steer * lim - ovx) * min(1f, dt * (5f + 0.5f * han))
@@ -301,26 +381,44 @@ class Game(private val prefs: SharedPreferences) {
 
         spawnTraffic(); spawnCoins()
 
-        val hitDz0 = spec.len / 2f
         val it = traffic.iterator()
         while (it.hasNext()) {
             val t = it.next()
             t.z += t.v * dt
-            val tl = if (t.type == 2) 8f else 4.7f
+            val tl = if (t.type == 2) 8.2f else 4.7f
             val tw = if (t.type == 2) 2.5f else 1.9f
             val dx = t.x - ox
             val dz = t.z - z
-            val hitDx = (spec.wid + tw) / 2f * 0.88f
-            val hitDz = (hitDz0 + tl / 2f) * 0.9f
-            if (!t.hit && abs(dx) < hitDx && abs(dz) < hitDz) {
-                t.hit = true
-                health -= 18f + speed * 0.12f
-                speed *= 0.55f
-                shake = 1f
-                crashCount++
-                ovx = -sign(dx) * 4f
-                t.v = max(10f, t.v * 0.7f)
-                say("ÇARPMA!")
+            val hitDx = (spec.wid + tw) / 2f * 0.95f
+            val hitDz = (spec.len + tl) / 2f * 0.97f
+            if (abs(dx) < hitDx && abs(dz) < hitDz) {
+                val first = !t.hit
+                if (first) {
+                    t.hit = true
+                    health -= 10f + speed * 0.1f
+                    shake = 1f
+                    crashCount++
+                    say("ÇARPMA!")
+                }
+                val penX = hitDx - abs(dx)
+                val penZ = hitDz - abs(dz)
+                if (penZ < penX * 3f) {
+                    // arkadan / önden çarpma: araç katıdır, içinden geçilmez
+                    if (dz > 0f) {
+                        z = t.z - hitDz
+                        speed = if (first) 0f else min(speed, t.v)
+                    } else {
+                        z = t.z + hitDz
+                        speed = max(speed, t.v)
+                    }
+                    ovx = 0f
+                } else {
+                    // yandan sürtme
+                    val sg = if (dx >= 0f) 1f else -1f
+                    ox -= sg * penX
+                    ovx = -sg * 2.5f
+                    speed *= if (first) 0.6f else 0.97f
+                }
             }
             if (!t.near && !t.hit && abs(dz) < 4f && abs(dx) >= hitDx && abs(dx) < hitDx + 0.9f && speed > t.v + 5f) {
                 t.near = true; nears++; nearCount++; nitro = min(100f, nitro + 10f); say("RAMAK KALA! +NİTRO")
@@ -328,6 +426,8 @@ class Game(private val prefs: SharedPreferences) {
             if (!t.passed && t.z < z - 6f) { t.passed = true; overtakes++ }
             if (t.z < z - 60f) it.remove()
         }
+        ox = ox.coerceIn(-limit, limit)
+
         val ci = coinList.iterator()
         while (ci.hasNext()) {
             val c = ci.next()

@@ -66,6 +66,7 @@ vec3 applyFog(vec3 col, vec3 pos){
   vec3 fc=u_fogCol+u_sunCol*sc*0.12+vec3(0.7,0.8,1.)*u_flash*0.5;
   return mix(col,fc,clamp(f,0.,1.));
 }
+vec3 fixc(vec3 c){ if(!(c.r>=0.&&c.g>=0.&&c.b>=0.)) return u_fogCol; return min(c,vec3(200.)); }
 vec3 headlight(vec3 p, vec3 N){
   vec3 d=p-u_hlPos; float dist=max(length(d),0.001); vec3 ld=d/dist;
   float cone=smoothstep(0.86,0.97,dot(ld,normalize(u_hlDir)));
@@ -94,8 +95,8 @@ in vec3 v_pos; in vec3 v_nrm; in vec3 v_lpos; flat in float v_part;
 uniform vec3 u_color; uniform vec3 u_emis; uniform float u_mode; uniform float u_win; uniform float u_brake;
 out vec4 o;
 void main(){
-  if(u_mode>1.5){ float d=length(v_lpos.xz*2.); float a=smoothstep(1.,0.35,d)*0.55; o=vec4(0.,0.,0.,a); return; }
-  vec3 N=normalize(v_nrm); vec3 V=normalize(u_cam-v_pos);
+  if(u_mode>1.5){ float d=length(v_lpos.xz*2.); float a=clamp((1.-d)/0.65,0.,1.); a=a*a*(3.-2.*a)*0.55; o=vec4(0.,0.,0.,a); return; }
+  float nl0=length(v_nrm); vec3 N=nl0>1e-5?v_nrm/nl0:vec3(0.,1.,0.); vec3 V=normalize(u_cam-v_pos);
   if(dot(N,V)<0.) N=-N;
   vec3 L=normalize(u_sun);
   vec3 base=u_color; vec3 emis=u_emis; float F0=0.04; float gloss=40.; float envK=0.;
@@ -133,7 +134,7 @@ void main(){
   }
   col+=emis;
   col=applyFog(col,v_pos);
-  o=vec4(col,0.);
+  o=vec4(fixc(col),0.);
 }
 """
 
@@ -151,7 +152,7 @@ in vec3 v_pos; in float v_lat;
 out vec4 o;
 void main(){
   float lat=v_lat; float al=abs(lat);
-  vec3 N=normalize(cross(dFdx(v_pos),dFdy(v_pos))); if(N.y<0.) N=-N;
+  vec3 N=cross(dFdx(v_pos),dFdy(v_pos)); float nl1=length(N); N=nl1>1e-12?N/nl1:vec3(0.,1.,0.); if(N.y<0.) N=-N;
   vec3 V=normalize(u_cam-v_pos); vec3 L=normalize(u_sun);
   float n1=noise(v_pos.xz*0.9); float n2=noise(v_pos.xz*0.07); float n3=noise(v_pos.xz*0.012+5.);
   vec3 albedo; float refl=0.; float gloss=30.; float isRoad=0.;
@@ -189,7 +190,7 @@ void main(){
   col+=u_sunCol*pow(max(dot(R,L),0.),gloss)*refl*(gloss/100.);
   col+=(lampL*1.5+hl*0.3)*refl*wetM*0.5;
   col=applyFog(col,v_pos);
-  o=vec4(col,isRoad*clamp(refl,0.,1.));
+  o=vec4(fixc(col),isRoad*clamp(refl,0.,1.));
 }
 """
 
@@ -210,7 +211,7 @@ void main(){
   }
   float st=step(0.9975,hash12(floor(d.xz/(d.y+0.2)*220.)))*u_night*smoothstep(0.05,0.4,d.y);
   c+=vec3(st)*1.5;
-  o=vec4(c,0.);
+  o=vec4(fixc(c),0.);
 }
 """
 
@@ -245,59 +246,60 @@ uniform float u_bloom; uniform float u_flash; uniform float u_damage; uniform fl
 uniform vec3 u_tint;
 float hash(vec2 p){ return fract(sin(dot(p,vec2(12.9898,78.233)))*43758.5453); }
 vec3 aces(vec3 x){ return clamp((x*(2.51*x+0.03))/(x*(2.43*x+0.59)+0.14),0.,1.); }
+vec4 T(vec2 p, float l){
+  vec4 c=textureLod(u_tex,p,l);
+  if(!(c.r>=0.&&c.g>=0.&&c.b>=0.)) return vec4(0.);
+  return vec4(min(c.rgb,vec3(64.)),clamp(c.a,0.,1.));
+}
 void main(){
   vec2 uv=v_uv;
   vec2 dir=uv-vec2(0.5,0.45);
-  // ekran-uzayı yansıma (ıslak yol)
   vec3 refl=vec3(0.);
-  float a0=textureLod(u_tex,uv,0.).a;
+  float a0=T(uv,0.).a;
   if(u_ssr>0.5 && a0>0.02){
     float stp=0.014; float yb=-1.;
     for(int i=1;i<=20;i++){
       float yy=uv.y+float(i)*stp;
       if(yy>=1.) break;
-      if(textureLod(u_tex,vec2(uv.x,yy),0.).a<0.01){ yb=float(i)*stp; break; }
+      if(T(vec2(uv.x,yy),0.).a<0.01){ yb=float(i)*stp; break; }
     }
     if(yb>0.){
       float ry=uv.y+2.*yb;
       if(ry<1.){
         float jit=(hash(uv*512.+u_time)-0.5)*0.004;
-        vec3 acc=textureLod(u_tex,vec2(uv.x+jit,ry),0.).rgb;
-        acc+=textureLod(u_tex,vec2(uv.x+jit+0.004,ry),1.).rgb;
-        acc+=textureLod(u_tex,vec2(uv.x+jit-0.004,ry),1.).rgb;
-        float ok=step(textureLod(u_tex,vec2(uv.x,ry),0.).a,0.01);
+        vec3 acc=T(vec2(uv.x+jit,ry),0.).rgb;
+        acc+=T(vec2(uv.x+jit+0.004,ry),1.).rgb;
+        acc+=T(vec2(uv.x+jit-0.004,ry),1.).rgb;
+        float ok=step(T(vec2(uv.x,ry),0.).a,0.01);
         refl=acc/3.*ok*(1.-yb/(20.*stp))*a0*0.85;
       }
     }
   }
-  // radyal hareket bulanıklığı + renk sapması
   vec3 col=vec3(0.);
   for(int i=0;i<8;i++){
     float t=float(i)/7.;
     vec2 p=uv-dir*u_blur*t;
     if(u_aberr>0.0001){
-      col.r+=textureLod(u_tex,p+dir*u_aberr,0.).r;
-      col.g+=textureLod(u_tex,p,0.).g;
-      col.b+=textureLod(u_tex,p-dir*u_aberr,0.).b;
-    } else col+=textureLod(u_tex,p,0.).rgb;
+      col.r+=T(p+dir*u_aberr,0.).r;
+      col.g+=T(p,0.).g;
+      col.b+=T(p-dir*u_aberr,0.).b;
+    } else col+=T(p,0.).rgb;
   }
   col/=8.;
-  // bloom
   vec3 bl=vec3(0.);
   for(int l=3;l<=5;l++){
     float lod=float(l);
     vec2 off=u_texel*exp2(lod)*0.7;
-    vec3 s=textureLod(u_tex,uv+vec2(off.x,0.),lod).rgb+textureLod(u_tex,uv-vec2(off.x,0.),lod).rgb
-          +textureLod(u_tex,uv+vec2(0.,off.y),lod).rgb+textureLod(u_tex,uv-vec2(0.,off.y),lod).rgb;
+    vec3 s=T(uv+vec2(off.x,0.),lod).rgb+T(uv-vec2(off.x,0.),lod).rgb
+          +T(uv+vec2(0.,off.y),lod).rgb+T(uv-vec2(0.,off.y),lod).rgb;
     bl+=max(s*0.25-0.5,0.)*(1.2-0.15*lod);
   }
-  // god rays
   vec3 rays=vec3(0.);
   if(u_rays>0.001){
     vec2 d=(u_sunUV-uv)*(0.95/20.); vec2 p=uv; float w=1.;
     for(int i=0;i<20;i++){
       p+=d;
-      vec3 s=textureLod(u_tex,p,2.).rgb;
+      vec3 s=T(p,2.).rgb;
       float lum=dot(s,vec3(.3,.59,.11));
       rays+=s*smoothstep(1.5,6.,lum)*w;
       w*=0.95;

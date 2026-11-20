@@ -65,8 +65,9 @@ class SoundEngine(private val g: Game) {
             if (g.goCount != lastGo) { lastGo = g.goCount; beepE = 1.4f; beepF = 1320f }
             if (g.thunderCount != lastTh) { lastTh = g.thunderCount; thE = 1f }
 
-            val menu = g.state == State.MENU || g.state == State.GARAGE
-            val vol = if (menu) 0.35f else 1f
+            val menu = g.menuLike
+            val paused = g.state == State.PAUSED || (g.state == State.SETTINGS && !g.settingsFromMenu)
+            val vol = if (paused) 0f else if (menu) 0.35f else 1f
             val rpmT = g.rpm
             val load = g.load
             val sn = (g.speed / 90f).coerceIn(0f, 1.3f)

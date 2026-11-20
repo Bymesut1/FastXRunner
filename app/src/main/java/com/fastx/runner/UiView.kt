@@ -20,6 +20,7 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
     private val rightR = RectF()
     private val nitR = RectF()
     private val brR = RectF()
+    private val pauseR = RectF()
     private var W = 0f
     private var H = 0f
 
@@ -32,6 +33,7 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         nitR.set(W - m - ns, H - m - ns, W - m, H - m)
         val bs = H * 0.2f
         brR.set(W - m * 2 - ns - bs, H - m - bs, W - m * 2 - ns, H - m)
+        pauseR.set(W * 0.895f, H * 0.12f, W * 0.97f, H * 0.23f)
     }
 
     private fun text(c: Canvas, s: String, x: Float, y: Float, size: Float, color: Int, align: Paint.Align = Paint.Align.LEFT) {
@@ -74,6 +76,8 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
             State.COUNTDOWN -> { drawHud(c); drawCountdown(c) }
             State.RACING -> drawHud(c)
             State.RESULT -> drawResult(c)
+            State.PAUSED -> { drawHud(c); drawPause(c) }
+            State.SETTINGS -> drawSettings(c)
         }
         postInvalidateOnAnimation()
     }
@@ -98,6 +102,7 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         button(c, r(0.12f, 0.80f, 0.07f, 0.13f), ">", g.level < g.maxLevel) { g.changeLevel(1) }
         button(c, r(0.21f, 0.80f, 0.20f, 0.13f), "OYNA", true, true, H * 0.06f) { g.startRace() }
         button(c, r(0.43f, 0.80f, 0.14f, 0.13f), "GARAJ") { g.openGarage() }
+        button(c, r(0.59f, 0.80f, 0.17f, 0.13f), "AYARLAR", true, false, H * 0.045f) { g.openSettings() }
     }
 
     private fun drawGarage(c: Canvas) {
@@ -150,9 +155,8 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         text(c, "HASAR", W * 0.03f, H * 0.065f, H * 0.035f, Color.LTGRAY)
         bar(c, W * 0.03f, H * 0.08f, W * 0.2f, H * 0.025f, g.health / 100f, if (g.health < 35f) Color.RED else Color.rgb(90, 220, 90))
         text(c, "PUAN: ${g.raceCoins}", W * 0.97f, H * 0.08f, H * 0.055f, Color.rgb(255, 205, 60), Paint.Align.RIGHT)
-        text(c, "${(g.speed * 3.6f).toInt()}", W / 2f, H * 0.90f, H * 0.17f, Color.WHITE, Paint.Align.CENTER)
-        text(c, "KM/H", W / 2f, H * 0.96f, H * 0.04f, Color.LTGRAY, Paint.Align.CENTER)
-        bar(c, W * 0.36f, H * 0.665f, W * 0.28f, H * 0.03f, g.nitro / 100f, Color.rgb(60, 160, 255))
+        // hız: küçük, ekranın üstünde
+        text(c, "${(g.speed * 3.6f).toInt()} KM/H", W * 0.36f, H * 0.085f, H * 0.05f, Color.WHITE, Paint.Align.CENTER)
         if (g.msgT > 0f) {
             val a = (g.msgT.coerceAtMost(0.5f) / 0.5f * 255).toInt()
             text(c, g.msg, W / 2f, H * 0.34f, H * 0.07f, Color.argb(a, 255, 230, 80), Paint.Align.CENTER)
@@ -167,6 +171,60 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         ctl(rightR, ">", g.right, H * 0.13f)
         ctl(brR, "FREN", g.braking, H * 0.05f)
         ctl(nitR, "NİTRO", g.nitBtn, H * 0.065f)
+        // duraklat butonu (puanın altında)
+        p.style = Paint.Style.FILL; p.color = Color.argb(120, 20, 22, 34)
+        c.drawRoundRect(pauseR, H * 0.025f, H * 0.025f, p)
+        p.color = Color.WHITE
+        val cxp = pauseR.centerX(); val cyp = pauseR.centerY()
+        val bw = pauseR.width() * 0.12f; val bh = pauseR.height() * 0.5f
+        c.drawRect(RectF(cxp - bw * 1.8f, cyp - bh / 2f, cxp - bw * 0.6f, cyp + bh / 2f), p)
+        c.drawRect(RectF(cxp + bw * 0.6f, cyp - bh / 2f, cxp + bw * 1.8f, cyp + bh / 2f), p)
+    }
+
+    private fun dim(c: Canvas) {
+        p.style = Paint.Style.FILL; p.color = Color.argb(150, 0, 0, 0)
+        c.drawRect(0f, 0f, W, H, p)
+    }
+
+    private fun drawPause(c: Canvas) {
+        dim(c)
+        val pr = r(0.33f, 0.06f, 0.34f, 0.88f)
+        panel(c, pr, 220)
+        text(c, "DURAKLATILDI", pr.centerX(), pr.top + H * 0.11f, H * 0.06f, Color.WHITE, Paint.Align.CENTER)
+        val bx = pr.left + W * 0.03f
+        val bw = pr.width() - W * 0.06f
+        fun b(i: Int, label: String, hot: Boolean, act: () -> Unit) {
+            val y = pr.top + H * (0.16f + i * 0.18f)
+            button(c, RectF(bx, y, bx + bw, y + H * 0.14f), label, true, hot, H * 0.05f, act)
+        }
+        b(0, "DEVAM ET", true) { g.resume() }
+        b(1, "AYARLAR", false) { g.openSettings() }
+        b(2, "ANA MENÜ", false) { g.toMenu() }
+        b(3, "OYUNDAN ÇIK", false) { g.quitApp() }
+    }
+
+    private fun segRow(c: Canvas, label: String, yf: Float, opts: Array<String>, sel: Int, set: (Int) -> Unit) {
+        val x0 = W * 0.14f
+        text(c, label, x0, yf * H + H * 0.082f, H * 0.045f, Color.WHITE)
+        val l = W * 0.34f
+        val rt = W * 0.86f
+        val gap = W * 0.01f
+        val bw = (rt - l - gap * (opts.size - 1)) / opts.size
+        for (i in opts.indices) {
+            val x = l + i * (bw + gap)
+            button(c, RectF(x, yf * H, x + bw, yf * H + H * 0.12f), opts[i], true, i == sel, H * 0.038f) { set(i) }
+        }
+    }
+
+    private fun drawSettings(c: Canvas) {
+        if (!g.settingsFromMenu) dim(c)
+        val pr = r(0.10f, 0.05f, 0.80f, 0.90f)
+        panel(c, pr, 225)
+        text(c, "AYARLAR", W / 2f, H * 0.15f, H * 0.07f, Color.WHITE, Paint.Align.CENTER)
+        segRow(c, "HAVA", 0.22f, arrayOf("OTOMATİK", "GÜNEŞLİ", "YAĞMURLU"), g.weather) { g.setWeather(it) }
+        segRow(c, "ZEMİN", 0.42f, arrayOf("OTOMATİK", "NORMAL", "ISLAK"), g.ground) { g.setGround(it) }
+        segRow(c, "YANSIMA", 0.62f, arrayOf("AÇIK", "KAPALI"), if (g.reflect) 0 else 1) { g.setReflect(it == 0) }
+        button(c, r(0.40f, 0.80f, 0.20f, 0.11f), "GERİ", true, false, H * 0.05f) { g.closeSettings() }
     }
 
     private fun drawResult(c: Canvas) {
@@ -195,10 +253,15 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
 
     override fun onTouchEvent(e: MotionEvent): Boolean {
         if (g.state == State.RACING || g.state == State.COUNTDOWN) {
+            val am = e.actionMasked
+            if (am == MotionEvent.ACTION_DOWN || am == MotionEvent.ACTION_POINTER_DOWN) {
+                val ai = e.actionIndex
+                if (pauseR.contains(e.getX(ai), e.getY(ai))) { g.pause(); return true }
+            }
             var l = false; var rt = false; var n = false; var b = false
-            val up = e.actionMasked == MotionEvent.ACTION_UP || e.actionMasked == MotionEvent.ACTION_CANCEL
+            val up = am == MotionEvent.ACTION_UP || am == MotionEvent.ACTION_CANCEL
             if (!up) for (i in 0 until e.pointerCount) {
-                if (e.actionMasked == MotionEvent.ACTION_POINTER_UP && i == e.actionIndex) continue
+                if (am == MotionEvent.ACTION_POINTER_UP && i == e.actionIndex) continue
                 val x = e.getX(i); val y = e.getY(i)
                 if (leftR.contains(x, y)) l = true
                 if (rightR.contains(x, y)) rt = true

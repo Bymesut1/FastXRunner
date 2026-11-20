@@ -24,6 +24,7 @@ class MainActivity : Activity() {
             window.attributes = lp
         }
         game = Game(getSharedPreferences("fxr", MODE_PRIVATE))
+        game.onExit = { runOnUiThread { finish() } }
         sound = SoundEngine(game)
         glView = GLSurfaceView(this)
         glView.setEGLContextClientVersion(3)
@@ -59,7 +60,7 @@ class MainActivity : Activity() {
         super.onPause()
         glView.onPause()
         sound.stop()
-        game.toMenu()
+        game.pause()
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
@@ -69,6 +70,12 @@ class MainActivity : Activity() {
 
     @Suppress("DEPRECATION")
     override fun onBackPressed() {
-        if (game.state != State.MENU) game.toMenu() else super.onBackPressed()
+        when (game.state) {
+            State.RACING, State.COUNTDOWN -> game.pause()
+            State.PAUSED -> game.resume()
+            State.SETTINGS -> game.closeSettings()
+            State.MENU -> super.onBackPressed()
+            else -> game.toMenu()
+        }
     }
 }

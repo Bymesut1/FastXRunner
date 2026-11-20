@@ -427,7 +427,7 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         bound = null
     }
 
-    private fun drawShadows() {
+        private fun drawShadows() {
         GLES30.glEnable(GLES30.GL_BLEND)
         GLES30.glBlendFuncSeparate(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA, GLES30.GL_ZERO, GLES30.GL_ONE)
         GLES30.glDepthMask(false)
@@ -436,15 +436,409 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         val ly = max(0.3f, sunD[1])
         val offX = -sunD[0] / ly * 0.6f
         val offZ = -sunD[2] / ly * 0.6f
-        fun sh(x: Float, z: Float, w: Float, l: Float, yaw: Float) {
-            val y = g.cy(z) + 0.03f
+        fun blob(x: Float, z: Float, w: Float, l: Float, yaw: Float) {
             Matrix.setIdentityM(model, 0)
-            Matrix.translateM(model, 0, x + offX, y, z + offZ)
+            Matrix.translateM(model, 0, x + offX, g.cy(z) + 0.03f, z + offZ)
             Matrix.rotateM(model, 0, yaw, 0f, 1f, 0f)
             Matrix.scaleM(model, 0, w * 1.4f, 0.02f, l * 1.25f)
             objDraw(cube, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 2f)
         }
         val spec = Game.CARS[g.shownCar]
         val z = g.z
-        val yaw = Math.toDegrees(atan((g.cx(z + 2f) - g.cx(z - 2f)) / 4f + g.ovx / max(g.speed, 8f)).toDouble()).toFloat()
-        sh
+        val racing = g.state != State.MENU && g.state != State.GARAGE
+        val yaw = if (racing) Math.toDegrees(atan((g.cx(z + 2f) - g.cx(z - 2f)) / 4f + g.ovx / max(g.speed, 8f)).toDouble()).toFloat() else 0f
+        blob(carX, z, spec.wid, spec.len, yaw)
+        for (t in g.traffic) {
+            if (t.z > z + 300f) continue
+            val tw = if (t.type == 2) 2.5f else 1.9f
+            val tl = if (t.type == 2) 8f else 4.7f
+            val ty2 = Math.toDegrees(atan((g.cx(t.z + 2f) - g.cx(t.z - 2f)) / 4f).toDouble()).toFloat()
+            blob(g.cx(t.z) + t.x, t.z, tw, tl, ty2)
+        }
+        GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDepthMask(true)
+    }
+
+    private fun drawProps() {
+        val th = g.theme
+        val night = th.night
+        val k0 = floor((ez - 30f) / 40f).toInt()
+        val deg = 57.29578f
+        val lampE = 0.15f + night * 9f
+        val win = if (th.kind == 2) 0.5f else if (night > 0.4f) 1f else 0.12f
+        val sides = intArrayOf(-1, 1)
+        for (k in k0..k0 + 12) {
+            val zk = k * 40f
+            for (q in 0..1) {
+                val zz = zk + 10f + q * 20f
+                val yaw = atan((g.cx(zz + 10f) - g.cx(zz - 10f)) / 20f) * deg
+                for (sd in sides) box(g.cx(zz) + sd * 8.9f, g.cy(zz), zz, 0.14f, 0.9f, 20.2f, yaw, 0.55f, 0.57f, 0.6f)
+            }
+            for (sd in sides) {
+                val x = g.cx(zk) + sd * 10.2f
+                val y = g.cy(zk)
+                box(x, y, zk, 0.18f, 7.5f, 0.18f, 0f, 0.3f, 0.3f, 0.32f)
+                box(x - sd * 1.0f, y + 7.4f, zk, 2.2f, 0.18f, 0.5f, 0f, 0.4f, 0.4f, 0.4f, lampE, lampE * 0.78f, lampE * 0.45f)
+            }
+            when (th.kind) {
+                0, 3 -> for (sd in sides) for (t in 0..1) {
+                    val r1 = hsh(k, sd * 10 + t * 3 + 1)
+                    val r2 = hsh(k, sd * 10 + t * 3 + 2)
+                    val r3 = hsh(k, sd * 10 + t * 3 + 3)
+                    val lat = sd * (15f + r1 * 50f)
+                    val zz = zk + r2 * 40f
+                    val x = g.cx(zz) + lat
+                    val y = g.groundY(zz, lat) - 1.2f
+                    val h = 9f + r3 * 8f
+                    val dk = 0.7f + r3 * 0.6f
+                    if (th.kind == 0) {
+                        box(x, y, zz, 0.6f, 3f, 0.6f, 0f, 0.15f, 0.1f, 0.06f)
+                        coneAt(cone, x, y + 2f, zz, 4f + r3 * 3f, h, 0f, 0.04f * dk, 0.16f * dk, 0.05f * dk)
+                    } else coneAt(cone, x, y, zz, 3.5f + r3 * 2f, h * 0.9f, 0f, 0.8f * dk, 0.85f * dk, 0.9f * dk)
+                }
+                2, 4, 5 -> for (sd in sides) for (row in 0..1) {
+                    val salt = sd * 20 + row * 7
+                    val r1 = hsh(k, salt + 1); val r2 = hsh(k, salt + 2); val r3 = hsh(k, salt + 3)
+                    val r4 = hsh(k, salt + 4); val r5 = hsh(k, salt + 5)
+                    val lat = sd * (if (row == 0) 28f + r1 * 30f else 75f + r1 * 55f)
+                    val zz = zk + r2 * 30f
+                    val w = 16f + r3 * 18f
+                    val h = if (th.kind == 2) 20f + r4 * 28f else (if (row == 0) 40f + r4 * r4 * 150f else 90f + r4 * 180f)
+                    val x = g.cx(zz) + lat
+                    val y = g.cy(zz) - 4f
+                    val cr: Float; val cg: Float; val cb: Float
+                    if (th.kind == 2) { cr = 0.55f * (0.8f + r5 * 0.4f); cg = 0.4f * (0.8f + r5 * 0.4f); cb = 0.28f }
+                    else { cr = 0.07f + r5 * 0.04f; cg = 0.08f + r5 * 0.04f; cb = 0.11f + r5 * 0.05f }
+                    box(x, y, zz, w, h + 4f, 22f, 0f, cr, cg, cb, 0f, 0f, 0f, win)
+                    if (th.kind != 2 && r5 > 0.55f) {
+                        val ci = (r5 * 10f).toInt() % 3
+                        val er = if (ci == 0) 8f else if (ci == 1) 0.5f else 9f
+                        val eg = if (ci == 0) 0.5f else if (ci == 1) 5f else 3f
+                        val eb = if (ci == 0) 6f else if (ci == 1) 8f else 0.5f
+                        box(x, y + h + 4f, zz, w * 0.9f, 1.2f, 20f, 0f, 0.1f, 0.1f, 0.1f, er, eg, eb)
+                    }
+                }
+            }
+        }
+        // uzak dağlar, piramitler, kumullar
+        for (k in k0..k0 + 22) {
+            val zk = k * 40f
+            if (th.kind == 0 || th.kind == 3) {
+                if ((k and 1) != 0) continue
+                for (sd in sides) {
+                    val r1 = hsh(k, sd * 5 + 41); val r2 = hsh(k, sd * 5 + 42)
+                    val lat = sd * (160f + r1 * 200f)
+                    val x = g.cx(zk) + lat
+                    val y = g.cy(zk) - 30f
+                    if (th.kind == 3) {
+                        val w = 250f + r2 * 250f; val h = 200f + r2 * 250f
+                        coneAt(cone, x, y, zk, w, h, 0f, 0.45f, 0.47f, 0.52f)
+                        coneAt(cone, x, y + h * 0.62f, zk, w * 0.4f, h * 0.38f, 0f, 0.95f, 0.96f, 1f)
+                    } else coneAt(cone, x, y, zk, 200f + r2 * 200f, 70f + r2 * 90f, 0f, 0.1f, 0.14f, 0.09f)
+                }
+            } else if (th.kind == 1) {
+                for (sd in sides) {
+                    val r1 = hsh(k, sd * 5 + 51); val r2 = hsh(k, sd * 5 + 52)
+                    if (k % 3 == 0) {
+                        val w = 130f + r2 * 120f
+                        coneAt(pyr, g.cx(zk) + sd * (120f + r1 * 200f), g.cy(zk) - 8f, zk, w, w * 0.62f, r1 * 90f, 0.78f, 0.62f, 0.38f)
+                    } else if ((k and 1) == 0) {
+                        coneAt(cone, g.cx(zk) + sd * (70f + r1 * 150f), g.cy(zk) - 8f, zk, 140f + r2 * 80f, 14f + r2 * 20f, 0f, 0.72f, 0.54f, 0.3f)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun carMatrix(x: Float, y: Float, z: Float, yaw: Float, pitch: Float, roll: Float) {
+        Matrix.setIdentityM(carM, 0)
+        Matrix.translateM(carM, 0, x, y, z)
+        Matrix.rotateM(carM, 0, yaw, 0f, 1f, 0f)
+        Matrix.rotateM(carM, 0, pitch, 1f, 0f, 0f)
+        Matrix.rotateM(carM, 0, roll, 0f, 0f, 1f)
+    }
+
+    private fun drawCarMesh(mesh: GpuMesh, spec: CarSpec, col: FloatArray, steerDeg: Float, brake: Float) {
+        GLES30.glUniform1f(pObj.u("u_brake"), brake)
+        System.arraycopy(carM, 0, model, 0, 16)
+        objDraw(mesh, col[0], col[1], col[2], 0f, 0f, 0f, 0f, 1f)
+        val wr = 0.31f + 0.04f * (spec.hgt / 1.4f)
+        val s = wr / 0.345f
+        val wx = spec.wid / 2f - 0.12f
+        val wz = spec.len * 0.30f
+        for (i in 0..3) {
+            val sx = if (i % 2 == 0) -1f else 1f
+            val fz = if (i < 2) 1f else -1f
+            System.arraycopy(carM, 0, wm, 0, 16)
+            Matrix.translateM(wm, 0, sx * wx, wr, fz * wz)
+            if (fz > 0f) Matrix.rotateM(wm, 0, steerDeg, 0f, 1f, 0f)
+            Matrix.rotateM(wm, 0, wheelSpin, 1f, 0f, 0f)
+            Matrix.scaleM(wm, 0, s * sx, s, s)
+            System.arraycopy(wm, 0, model, 0, 16)
+            objDraw(wheel, 0.02f, 0.02f, 0.02f, 0f, 0f, 0f, 0f, 1f)
+        }
+        GLES30.glUniform1f(pObj.u("u_brake"), 0f)
+    }
+
+    private fun drawTraffic() {
+        val deg = 57.29578f
+        for (t in g.traffic) {
+            if (t.z > ez + 430f || t.z < ez - 15f) continue
+            val x = g.cx(t.z) + t.x
+            val y = g.cy(t.z)
+            val yaw = atan((g.cx(t.z + 2f) - g.cx(t.z - 2f)) / 4f) * deg
+            val pitch = -atan((g.cy(t.z + 2f) - g.cy(t.z - 2f)) / 4f) * deg
+            if (t.type == 2) {
+                carMatrix(x, y, t.z, yaw, pitch, 0f)
+                System.arraycopy(carM, 0, model, 0, 16)
+                Matrix.translateM(model, 0, 0f, 0.5f + 1.6f, -0.9f)
+                Matrix.scaleM(model, 0, 2.5f, 3.2f, 6.2f)
+                objDraw(cube, 0.75f, 0.76f, 0.8f, 0f, 0f, 0f, 0f, 0f)
+                System.arraycopy(carM, 0, model, 0, 16)
+                Matrix.translateM(model, 0, 0f, 0.5f + 1.3f, 3.2f)
+                Matrix.scaleM(model, 0, 2.4f, 2.6f, 2.0f)
+                objDraw(cube, t.color[0], t.color[1], t.color[2], 0f, 0f, 0f, 0f, 0f)
+                for (sd in intArrayOf(-1, 1)) {
+                    System.arraycopy(carM, 0, model, 0, 16)
+                    Matrix.translateM(model, 0, sd * 0.9f, 1.0f, -4.05f)
+                    Matrix.scaleM(model, 0, 0.4f, 0.3f, 0.1f)
+                    objDraw(cube, 0.3f, 0f, 0f, 3.5f, 0.15f, 0.1f, 0f, 0f)
+                    System.arraycopy(carM, 0, model, 0, 16)
+                    Matrix.translateM(model, 0, sd * 1.15f, 0.45f, -2.5f)
+                    Matrix.scaleM(model, 0, 0.3f, 0.9f, 1.0f)
+                    objDraw(cube, 0.02f, 0.02f, 0.02f, 0f, 0f, 0f, 0f, 0f)
+                }
+            } else {
+                carMatrix(x, y, t.z, yaw, pitch, 0f)
+                drawCarMesh(carLo[t.type]!!, if (t.type == 0) Game.TSEDAN else Game.TSUV, t.color, 0f, 0f)
+            }
+        }
+    }
+
+    private fun drawCoins() {
+        val yaw = (tAcc * 180f) % 360f
+        for (c in g.coinList) {
+            if (c.taken || c.z > ez + 420f || c.z < ez - 10f) continue
+            val x = g.cx(c.z) + c.x
+            val y = g.cy(c.z) + 0.6f + sin(tAcc * 3f + c.z) * 0.15f
+            if (c.big) box(x, y, c.z, 0.9f, 0.9f, 0.9f, yaw, 0.1f, 0.5f, 0.7f, 0.3f, 2.5f, 4f)
+            else box(x, y, c.z, 1.1f, 1.1f, 0.12f, yaw, 1f, 0.75f, 0.1f, 3f, 2.2f, 0.3f)
+        }
+    }
+
+    private fun drawPlayer() {
+        val ci = g.shownCar
+        val spec = Game.CARS[ci]
+        val mesh = carHi ?: return
+        val z = g.z
+        val racing = g.state != State.MENU && g.state != State.GARAGE
+        val deg = 57.29578f
+        var yaw = 0f; var pitch = 0f; var roll = 0f
+        var y = carY
+        if (racing) {
+            yaw = atan((g.cx(z + 2f) - g.cx(z - 2f)) / 4f + g.ovx / max(g.speed, 8f)) * deg
+            pitch = -atan((g.cy(z + 2f) - g.cy(z - 2f)) / 4f) * deg
+            roll = -g.steer * 3f
+            y += sin(tAcc * 40f) * 0.004f * (g.speed / 50f)
+        }
+        carMatrix(carX, y, z, yaw, pitch, roll)
+        drawCarMesh(mesh, spec, spec.color, if (racing) g.steer * 22f else 0f, if (g.braking && racing) 1f else 0f)
+    }
+
+    private fun rr() = Random.nextFloat()
+
+    private fun emitParticles(dt: Float) {
+        val st = g.state
+        if (st == State.MENU || st == State.GARAGE) { lastCrash = g.crashCount; lastCoin = g.coinCount; return }
+        val spec = Game.CARS[g.carSel]
+        val z = g.z
+        if (g.nitroOn) for (sd in intArrayOf(-1, 1)) for (i in 0..1) {
+            val x = carX + sd * 0.5f
+            val y = carY + 0.45f
+            val zz = z - spec.len / 2f - 0.1f
+            parts.add(0, x, y, zz, (rr() - 0.5f) * 0.8f, rr() * 0.4f, -(3f + rr() * 4f), 0.3f, 0.28f, 2f, 4f, 1.6f, 0.4f, 1f, 0f, 0f)
+            parts.add(0, x, y, zz, (rr() - 0.5f) * 0.3f, rr() * 0.2f, -(5f + rr() * 5f), 0.18f, 0.16f, 1f, 0.5f, 1f, 4f, 1f, 0f, 0f)
+        }
+        if (g.crashCount != lastCrash) {
+            lastCrash = g.crashCount
+            repeat(45) {
+                parts.add(0, carX + (rr() - 0.5f) * 1.5f, carY + 0.5f + rr() * 0.5f, z + spec.len / 2f,
+                    (rr() - 0.5f) * 14f, rr() * 7f + 1f, rr() * 12f - 2f, 0.5f + rr() * 0.5f, 0.1f, 0f, 4f, 2f, 0.5f, 1f, -9f, 0.06f)
+            }
+            repeat(14) {
+                parts.add(1, carX + (rr() - 0.5f) * 1.5f, carY + 0.6f, z + spec.len / 2f,
+                    (rr() - 0.5f) * 3f, rr() * 2f, rr() * 3f, 1.2f, 0.8f, 3f, 0.45f, 0.45f, 0.45f, 0.5f, 0.3f, 0f)
+            }
+        }
+        if (g.scrape) {
+            val side = if (g.ox > 0f) 1f else -1f
+            repeat(3) {
+                parts.add(0, carX + side * spec.wid / 2f, carY + 0.3f, z + (rr() - 0.5f) * 3f,
+                    side * rr() * 3f, rr() * 3f + 1f, rr() * 8f - 2f, 0.4f, 0.08f, 0f, 4f, 2f, 0.5f, 1f, -9f, 0.05f)
+            }
+        }
+        if (g.skid) for (sd in intArrayOf(-1, 1)) {
+            parts.add(1, carX + sd * 0.8f, carY + 0.2f, z - spec.len * 0.3f, 0f, 0.3f, 0f, 0.9f, 0.5f, 2f, 0.6f, 0.6f, 0.6f, 0.35f, 0.3f, 0f)
+        }
+        if (g.coinCount != lastCoin) {
+            lastCoin = g.coinCount
+            repeat(10) {
+                parts.add(0, g.coinX, g.cy(g.coinZ) + 1f, g.coinZ, (rr() - 0.5f) * 4f, rr() * 4f, (rr() - 0.5f) * 4f,
+                    0.5f, 0.12f, 0f, 3f, 2.2f, 0.4f, 1f, -4f, 0f)
+            }
+        }
+    }
+
+    private var qn = 0
+
+    private fun quad(cx: Float, cy: Float, cz: Float, ax: Float, ay: Float, az: Float,
+                     bx: Float, by: Float, bz: Float, r: Float, gg: Float, b: Float, a: Float) {
+        if ((qn + 1) * 54 > partArr.size) return
+        val sx = intArrayOf(-1, 1, 1, -1)
+        val sy = intArrayOf(-1, -1, 1, 1)
+        val order = intArrayOf(0, 1, 2, 0, 2, 3)
+        var o = qn * 54
+        for (k in order) {
+            val u = sx[k].toFloat(); val v = sy[k].toFloat()
+            partArr[o++] = cx + ax * u + bx * v
+            partArr[o++] = cy + ay * u + by * v
+            partArr[o++] = cz + az * u + bz * v
+            partArr[o++] = (u + 1f) * 0.5f
+            partArr[o++] = (v + 1f) * 0.5f
+            partArr[o++] = r; partArr[o++] = gg; partArr[o++] = b; partArr[o++] = a
+        }
+        qn++
+    }
+
+    private fun streak(px: Float, py: Float, pz: Float, dx: Float, dy: Float, dz: Float, len: Float, width: Float,
+                       r: Float, gg: Float, b: Float, a: Float) {
+        val dl = sqrt(dx * dx + dy * dy + dz * dz).coerceAtLeast(1e-5f)
+        val nx = dx / dl; val ny = dy / dl; val nz = dz / dl
+        val ex2 = ex - px; val ey2 = ey - py; val ez2 = ez - pz
+        var cx = ny * ez2 - nz * ey2
+        var cy = nz * ex2 - nx * ez2
+        var cz = nx * ey2 - ny * ex2
+        val cl = sqrt(cx * cx + cy * cy + cz * cz).coerceAtLeast(1e-5f)
+        cx = cx / cl * width; cy = cy / cl * width; cz = cz / cl * width
+        quad(px, py, pz, nx * len * 0.5f, ny * len * 0.5f, nz * len * 0.5f, cx, cy, cz, r, gg, b, a)
+    }
+
+    private fun addParticle(i: Int) {
+        val fade = (parts.life[i] / parts.maxL[i]).coerceIn(0f, 1f)
+        val sz = parts.size[i] * (1f + parts.grow[i] * (1f - fade))
+        val al = parts.a[i] * fade
+        if (parts.stretch[i] > 0f) {
+            val sp = sqrt(parts.vx[i] * parts.vx[i] + parts.vy[i] * parts.vy[i] + parts.vz[i] * parts.vz[i])
+            streak(parts.x[i], parts.y[i], parts.z[i], parts.vx[i], parts.vy[i], parts.vz[i],
+                max(0.2f, parts.stretch[i] * sp), sz, parts.r[i], parts.g[i], parts.b[i], al)
+        } else {
+            quad(parts.x[i], parts.y[i], parts.z[i], camR[0] * sz, camR[1] * sz, camR[2] * sz,
+                camU[0] * sz, camU[1] * sz, camU[2] * sz, parts.r[i], parts.g[i], parts.b[i], al)
+        }
+    }
+
+    private fun drawParticles() {
+        val th = g.theme
+        qn = 0
+        for (i in 0 until parts.n) if (parts.kind[i] == 0) addParticle(i)
+        val racing = g.state == State.RACING || g.state == State.COUNTDOWN
+        if (th.rain) {
+            for (i in 0 until 260) {
+                val u1 = hsh(i, 1); val u2 = hsh(i, 2); val u3 = hsh(i, 3)
+                val x = ex + (u1 - 0.5f) * 50f
+                val zz = ez + u2 * 70f - 10f
+                val y = ey + 12f - ((u3 * 30f + tAcc * 28f) % 30f)
+                streak(x, y, zz, 0f, -1f, -(g.speed / 90f) * 0.5f, 1.0f, 0.02f, 0.6f, 0.7f, 0.9f, 0.5f)
+            }
+        }
+        if (racing && g.speed > 45f) {
+            val k = ((g.speed - 45f) / 45f).coerceIn(0f, 1f)
+            for (i in 0 until 40) {
+                val ang = hsh(i, 11) * 6.2832f
+                val rad = 3f + hsh(i, 12) * 6f
+                val zz = ez + 3f + (((hsh(i, 13) * 40f - tAcc * g.speed * 0.8f) % 40f) + 40f) % 40f
+                streak(ex + cos(ang) * rad, ey + sin(ang) * rad * 0.6f, zz, 0f, 0f, 1f, g.speed * 0.05f, 0.03f, 1f, 1f, 1f, 0.3f * k)
+            }
+        }
+        val nAdd = qn
+        for (i in 0 until parts.n) if (parts.kind[i] == 1) addParticle(i)
+        val nSm = qn - nAdd
+        if (qn == 0) return
+        partFb.clear()
+        partFb.put(partArr, 0, qn * 54)
+        partFb.position(0)
+        pPart.use()
+        GLES30.glUniformMatrix4fv(pPart.u("u_vp"), 1, false, vp, 0)
+        GLES30.glBindBuffer(GLES30.GL_ARRAY_BUFFER, partVbo)
+        GLES30.glBufferData(GLES30.GL_ARRAY_BUFFER, qn * 54 * 4, partFb, GLES30.GL_STREAM_DRAW)
+        en(3)
+        GLES30.glVertexAttribPointer(0, 3, GLES30.GL_FLOAT, false, 36, 0)
+        GLES30.glVertexAttribPointer(1, 2, GLES30.GL_FLOAT, false, 36, 12)
+        GLES30.glVertexAttribPointer(2, 4, GLES30.GL_FLOAT, false, 36, 20)
+        GLES30.glDepthMask(false)
+        GLES30.glEnable(GLES30.GL_BLEND)
+        if (nAdd > 0) {
+            GLES30.glBlendFuncSeparate(GLES30.GL_ONE, GLES30.GL_ONE, GLES30.GL_ZERO, GLES30.GL_ONE)
+            GLES30.glUniform1f(pPart.u("u_add"), 1f)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, nAdd * 6)
+        }
+        if (nSm > 0) {
+            GLES30.glBlendFuncSeparate(GLES30.GL_SRC_ALPHA, GLES30.GL_ONE_MINUS_SRC_ALPHA, GLES30.GL_ZERO, GLES30.GL_ONE)
+            GLES30.glUniform1f(pPart.u("u_add"), 0f)
+            GLES30.glDrawArrays(GLES30.GL_TRIANGLES, nAdd * 6, nSm * 6)
+        }
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDepthMask(true)
+        bound = null
+    }
+
+    private fun post() {
+        val th = g.theme
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, colorTex)
+        GLES30.glGenerateMipmap(GLES30.GL_TEXTURE_2D)
+        GLES30.glBindFramebuffer(GLES30.GL_FRAMEBUFFER, 0)
+        GLES30.glViewport(0, 0, sw, sh)
+        GLES30.glDisable(GLES30.GL_DEPTH_TEST)
+        GLES30.glDisable(GLES30.GL_BLEND)
+        GLES30.glDepthMask(false)
+        pPost.use()
+        GLES30.glActiveTexture(GLES30.GL_TEXTURE0)
+        GLES30.glBindTexture(GLES30.GL_TEXTURE_2D, colorTex)
+        GLES30.glUniform1i(pPost.u("u_tex"), 0)
+        GLES30.glUniform2f(pPost.u("u_texel"), 1f / rw, 1f / rh)
+
+        val sv = floatArrayOf(ex + sunD[0] * 1000f, ey + sunD[1] * 1000f, ez + sunD[2] * 1000f, 1f)
+        val out = FloatArray(4)
+        Matrix.multiplyMV(out, 0, vp, 0, sv, 0)
+        var rays = 0f
+        var su = 0.5f; var sv2 = 0.5f
+        if (out[3] > 0.01f && th.night < 0.5f && scale > 0.6f) {
+            su = out[0] / out[3] * 0.5f + 0.5f
+            sv2 = out[1] / out[3] * 0.5f + 0.5f
+            val off = sqrt((su - 0.5f) * (su - 0.5f) + (sv2 - 0.5f) * (sv2 - 0.5f))
+            rays = 0.9f * (1f - (off - 0.6f).coerceIn(0f, 1f))
+        }
+        val racing = g.state == State.RACING || g.state == State.COUNTDOWN || g.state == State.RESULT
+        val sn = (g.speed / 90f).coerceIn(0f, 1.3f)
+        val blur = if (racing) sn * sn * 0.05f + (if (g.nitroOn) 0.05f else 0f) else 0f
+        val aberr = if (g.nitroOn) 0.012f else if (racing && sn > 0.8f) 0.004f else 0f
+        val lowHp = if (racing && g.health < 35f) (35f - g.health) / 35f * 0.5f else 0f
+        GLES30.glUniform2f(pPost.u("u_sunUV"), su, sv2)
+        GLES30.glUniform1f(pPost.u("u_rays"), rays)
+        GLES30.glUniform1f(pPost.u("u_blur"), blur)
+        GLES30.glUniform1f(pPost.u("u_aberr"), aberr)
+        GLES30.glUniform1f(pPost.u("u_vig"), 0.5f)
+        GLES30.glUniform1f(pPost.u("u_exp"), 0.8f + 0.7f * th.night)
+        GLES30.glUniform1f(pPost.u("u_bloom"), 0.5f + th.night * 0.4f)
+        GLES30.glUniform1f(pPost.u("u_flash"), flashV)
+        GLES30.glUniform1f(pPost.u("u_damage"), max(lowHp, g.shake * 0.35f))
+        GLES30.glUniform1f(pPost.u("u_time"), tAcc)
+        GLES30.glUniform1f(pPost.u("u_ssr"), if (scale > 0.6f) 1f else 0f)
+        GLES30.glUniform3fv(pPost.u("u_tint"), 1, th.grade, 0)
+        en(0)
+        GLES30.glDrawArrays(GLES30.GL_TRIANGLES, 0, 3)
+        GLES30.glDepthMask(true)
+        GLES30.glEnable(GLES30.GL_DEPTH_TEST)
+    }
+}

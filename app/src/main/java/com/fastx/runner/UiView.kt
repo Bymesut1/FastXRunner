@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.view.MotionEvent
@@ -15,6 +16,7 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
 
     private val btns = ArrayList<Btn>()
     private val p = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val clip = Path()
     private val tf = Typeface.create("sans-serif-condensed", Typeface.BOLD)
     private val leftR = RectF()
     private val rightR = RectF()
@@ -95,14 +97,16 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         text(c, "${g.theme.name} • ${g.theme.place}", x, pr.top + H * 0.125f, H * 0.04f, Color.rgb(180, 200, 255))
         text(c, starsStr(g.stars[g.level]), pr.right - W * 0.02f, pr.top + H * 0.075f, H * 0.06f, Color.rgb(255, 205, 60), Paint.Align.RIGHT)
         text(c, "GÖREVLER", x, pr.top + H * 0.19f, H * 0.04f, Color.rgb(255, 120, 100))
-        text(c, "• ${g.target.toInt()} m yarışı bitir", x, pr.top + H * 0.25f, H * 0.04f, Color.WHITE)
-        text(c, "• ${g.m2Target()} puan topla", x, pr.top + H * 0.31f, H * 0.04f, Color.WHITE)
-        text(c, "• ${g.m3Text()}", x, pr.top + H * 0.37f, H * 0.04f, Color.WHITE)
+        text(c, "• İlk 3'e gir", x, pr.top + H * 0.25f, H * 0.04f, Color.WHITE)
+        text(c, "• Yarışı 1. bitir", x, pr.top + H * 0.31f, H * 0.04f, Color.WHITE)
+        text(c, "• ${g.m3Target()} nitro tüpü topla", x, pr.top + H * 0.37f, H * 0.04f, Color.WHITE)
+        text(c, "${Game.LAPS} TUR • ${g.lapLen.toInt()} m • ${Game.RACERS} YARIŞÇI", x, pr.top + H * 0.43f, H * 0.032f, Color.LTGRAY)
         button(c, r(0.04f, 0.80f, 0.07f, 0.13f), "<", g.level > 1) { g.changeLevel(-1) }
         button(c, r(0.12f, 0.80f, 0.07f, 0.13f), ">", g.level < g.maxLevel) { g.changeLevel(1) }
         button(c, r(0.21f, 0.80f, 0.20f, 0.13f), "OYNA", true, true, H * 0.06f) { g.startRace() }
         button(c, r(0.43f, 0.80f, 0.14f, 0.13f), "GARAJ") { g.openGarage() }
         button(c, r(0.59f, 0.80f, 0.17f, 0.13f), "AYARLAR", true, false, H * 0.045f) { g.openSettings() }
+        button(c, r(0.78f, 0.80f, 0.19f, 0.13f), "ZORLUK: ${Game.DIFF_NAMES[g.difficulty]}", true, false, H * 0.036f) { g.cycleDifficulty() }
     }
 
     private fun drawGarage(c: Canvas) {
@@ -146,17 +150,17 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
     }
 
     private fun drawHud(c: Canvas) {
-        val dist = (g.z - g.z0).coerceAtLeast(0f)
-        val tl = max(0, g.timeLeft.toInt())
-        val tcol = if (tl < 10) Color.rgb(255, 70, 60) else Color.WHITE
-        text(c, "%02d:%02d".format(tl / 60, tl % 60), W / 2f, H * 0.09f, H * 0.085f, tcol, Paint.Align.CENTER)
-        bar(c, W * 0.3f, H * 0.115f, W * 0.4f, H * 0.018f, dist / g.target, Color.rgb(80, 200, 255))
-        text(c, "${dist.toInt()} / ${g.target.toInt()} m", W / 2f, H * 0.17f, H * 0.035f, Color.LTGRAY, Paint.Align.CENTER)
+        // süre ve tur
+        text(c, fmtTime(g.raceTime), W / 2f, H * 0.09f, H * 0.08f, Color.WHITE, Paint.Align.CENTER)
+        bar(c, W * 0.38f, H * 0.115f, W * 0.24f, H * 0.016f, g.z / g.total, Color.rgb(80, 200, 255))
+        text(c, "TUR ${g.lap}/${Game.LAPS}", W * 0.97f, H * 0.08f, H * 0.055f, Color.rgb(255, 205, 60), Paint.Align.RIGHT)
+        // hasar ve sıra
         text(c, "HASAR", W * 0.03f, H * 0.065f, H * 0.035f, Color.LTGRAY)
         bar(c, W * 0.03f, H * 0.08f, W * 0.2f, H * 0.025f, g.health / 100f, if (g.health < 35f) Color.RED else Color.rgb(90, 220, 90))
-        text(c, "PUAN: ${g.raceCoins}", W * 0.97f, H * 0.08f, H * 0.055f, Color.rgb(255, 205, 60), Paint.Align.RIGHT)
-        // hız: küçük, ekranın üstünde
-        text(c, "${(g.speed * 3.6f).toInt()} KM/H", W * 0.36f, H * 0.085f, H * 0.05f, Color.WHITE, Paint.Align.CENTER)
+        text(c, "SIRA", W * 0.03f, H * 0.16f, H * 0.035f, Color.LTGRAY)
+        text(c, "${g.myPlace()}/${Game.RACERS}", W * 0.03f, H * 0.255f, H * 0.1f, Color.WHITE)
+        // hız (küçük)
+        text(c, "${(g.speed * 3.6f).toInt()} KM/H", W * 0.34f, H * 0.085f, H * 0.05f, Color.WHITE, Paint.Align.CENTER)
         if (g.msgT > 0f) {
             val a = (g.msgT.coerceAtMost(0.5f) / 0.5f * 255).toInt()
             text(c, g.msg, W / 2f, H * 0.34f, H * 0.07f, Color.argb(a, 255, 230, 80), Paint.Align.CENTER)
@@ -170,8 +174,22 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         ctl(leftR, "<", g.left, H * 0.13f)
         ctl(rightR, ">", g.right, H * 0.13f)
         ctl(brR, "FREN", g.braking, H * 0.05f)
-        ctl(nitR, "NİTRO", g.nitBtn, H * 0.065f)
-        // duraklat butonu (puanın altında)
+        // nitro düğmesi: içi nitro seviyesi kadar dolar
+        val rad = H * 0.04f
+        p.style = Paint.Style.FILL
+        p.color = if (g.nitBtn) Color.argb(130, 255, 60, 50) else Color.argb(70, 255, 255, 255)
+        c.drawRoundRect(nitR, rad, rad, p)
+        clip.reset()
+        clip.addRoundRect(nitR, rad, rad, Path.Direction.CW)
+        c.save()
+        c.clipPath(clip)
+        p.color = Color.argb(150, 40, 140, 255)
+        val fh = nitR.height() * (g.nitro / 100f).coerceIn(0f, 1f)
+        c.drawRect(nitR.left, nitR.bottom - fh, nitR.right, nitR.bottom, p)
+        c.restore()
+        text(c, "NİTRO", nitR.centerX(), nitR.centerY() - H * 0.01f, H * 0.06f, Color.argb(230, 255, 255, 255), Paint.Align.CENTER)
+        text(c, "%${g.nitro.toInt()}", nitR.centerX(), nitR.centerY() + H * 0.07f, H * 0.05f, Color.argb(230, 255, 255, 255), Paint.Align.CENTER)
+        // duraklat
         p.style = Paint.Style.FILL; p.color = Color.argb(120, 20, 22, 34)
         c.drawRoundRect(pauseR, H * 0.025f, H * 0.025f, p)
         p.color = Color.WHITE
@@ -220,35 +238,37 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         if (!g.settingsFromMenu) dim(c)
         val pr = r(0.10f, 0.05f, 0.80f, 0.90f)
         panel(c, pr, 225)
-        text(c, "AYARLAR", W / 2f, H * 0.15f, H * 0.07f, Color.WHITE, Paint.Align.CENTER)
-        segRow(c, "HAVA", 0.22f, arrayOf("OTOMATİK", "GÜNEŞLİ", "YAĞMURLU"), g.weather) { g.setWeather(it) }
-        segRow(c, "ZEMİN", 0.42f, arrayOf("OTOMATİK", "NORMAL", "ISLAK"), g.ground) { g.setGround(it) }
-        segRow(c, "YANSIMA", 0.62f, arrayOf("AÇIK", "KAPALI"), if (g.reflect) 0 else 1) { g.setReflect(it == 0) }
-        button(c, r(0.40f, 0.80f, 0.20f, 0.11f), "GERİ", true, false, H * 0.05f) { g.closeSettings() }
+        text(c, "AYARLAR", W / 2f, H * 0.14f, H * 0.065f, Color.WHITE, Paint.Align.CENTER)
+        segRow(c, "HAVA", 0.19f, arrayOf("OTOMATİK", "GÜNEŞLİ", "YAĞMURLU"), g.weather) { g.setWeather(it) }
+        segRow(c, "ZEMİN", 0.35f, arrayOf("OTOMATİK", "NORMAL", "ISLAK"), g.ground) { g.setGround(it) }
+        segRow(c, "YANSIMA", 0.51f, arrayOf("AÇIK", "KAPALI"), if (g.reflect) 0 else 1) { g.setReflect(it == 0) }
+        segRow(c, "ZORLUK", 0.67f, Game.DIFF_NAMES, g.difficulty) { g.setDifficulty(it) }
+        button(c, r(0.40f, 0.83f, 0.20f, 0.10f), "GERİ", true, false, H * 0.05f) { g.closeSettings() }
     }
 
     private fun drawResult(c: Canvas) {
-        val pr = r(0.25f, 0.08f, 0.50f, 0.84f)
-        panel(c, pr, 200)
+        val pr = r(0.22f, 0.05f, 0.56f, 0.90f)
+        panel(c, pr, 210)
         val cx = pr.centerX()
-        text(c, if (g.resultOk) "YARIŞ TAMAMLANDI!" else "YARIŞ BAŞARISIZ", cx, pr.top + H * 0.10f, H * 0.07f,
-            if (g.resultOk) Color.rgb(90, 230, 110) else Color.rgb(255, 80, 70), Paint.Align.CENTER)
+        val pl = g.resultPlace
+        val title = if (pl == 1) "BİRİNCİ OLDUN!" else "$pl. SIRA"
+        text(c, title, cx, pr.top + H * 0.10f, H * 0.075f,
+            if (pl <= 3) Color.rgb(90, 230, 110) else Color.rgb(255, 130, 70), Paint.Align.CENTER)
         text(c, starsStr(g.resultStars), cx, pr.top + H * 0.20f, H * 0.09f, Color.rgb(255, 205, 60), Paint.Align.CENTER)
         val x = pr.left + W * 0.03f
-        val d = (g.z - g.z0).toInt()
-        text(c, "Mesafe: $d m", x, pr.top + H * 0.29f, H * 0.045f, Color.WHITE)
-        text(c, "Toplanan puan: ${g.raceCoins}", x, pr.top + H * 0.35f, H * 0.045f, Color.WHITE)
-        text(c, "${if (g.resultOk) "✓" else "✗"} ${g.target.toInt()} m yarışı bitir", x, pr.top + H * 0.43f, H * 0.04f, Color.LTGRAY)
-        text(c, "${if (g.resultM2) "✓" else "✗"} ${g.m2Target()} puan topla", x, pr.top + H * 0.49f, H * 0.04f, Color.LTGRAY)
-        text(c, "${if (g.resultM3) "✓" else "✗"} ${g.m3Text()} (${g.m3Value()})", x, pr.top + H * 0.55f, H * 0.04f, Color.LTGRAY)
-        text(c, "KAZANÇ: +${g.resultReward}", cx, pr.top + H * 0.65f, H * 0.06f, Color.rgb(255, 205, 60), Paint.Align.CENTER)
-        val by = pr.top + H * 0.70f
+        text(c, "Süren: ${fmtTime(g.resultTime)}", x, pr.top + H * 0.29f, H * 0.045f, Color.WHITE)
+        if (pl != 1) text(c, "Kazanan: ${g.winnerName}  ${fmtTime(g.winnerTime)}", x, pr.top + H * 0.35f, H * 0.04f, Color.LTGRAY)
+        text(c, "${if (g.resultM1) "✓" else "✗"} İlk 3'e gir", x, pr.top + H * 0.44f, H * 0.04f, Color.LTGRAY)
+        text(c, "${if (g.resultM2) "✓" else "✗"} Yarışı 1. bitir", x, pr.top + H * 0.50f, H * 0.04f, Color.LTGRAY)
+        text(c, "${if (g.resultM3) "✓" else "✗"} ${g.m3Target()} nitro tüpü topla (${g.nitroGot})", x, pr.top + H * 0.56f, H * 0.04f, Color.LTGRAY)
+        text(c, "KAZANÇ: +${g.resultReward}", cx, pr.top + H * 0.66f, H * 0.06f, Color.rgb(255, 205, 60), Paint.Align.CENTER)
+        val by = pr.top + H * 0.72f
         val bw = (pr.width() - W * 0.08f) / 3f
         val bx = pr.left + W * 0.02f
-        button(c, RectF(bx, by, bx + bw, by + H * 0.11f), "MENÜ", true, false, H * 0.04f) { g.toMenu() }
-        button(c, RectF(bx + bw + W * 0.02f, by, bx + bw * 2 + W * 0.02f, by + H * 0.11f), "TEKRAR", true, false, H * 0.04f) { g.startRace() }
-        val canNext = g.resultOk && g.level < Game.MAX_LEVEL
-        button(c, RectF(bx + bw * 2 + W * 0.04f, by, bx + bw * 3 + W * 0.04f, by + H * 0.11f), "SONRAKİ", canNext, canNext, H * 0.04f) { g.nextLevel() }
+        button(c, RectF(bx, by, bx + bw, by + H * 0.12f), "MENÜ", true, false, H * 0.04f) { g.toMenu() }
+        button(c, RectF(bx + bw + W * 0.02f, by, bx + bw * 2 + W * 0.02f, by + H * 0.12f), "TEKRAR", true, false, H * 0.04f) { g.startRace() }
+        val canNext = g.resultM1 && g.level < Game.MAX_LEVEL
+        button(c, RectF(bx + bw * 2 + W * 0.04f, by, bx + bw * 3 + W * 0.04f, by + H * 0.12f), "SONRAKİ", canNext, canNext, H * 0.04f) { g.nextLevel() }
     }
 
     override fun onTouchEvent(e: MotionEvent): Boolean {

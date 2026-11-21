@@ -29,7 +29,7 @@ object MeshGen {
         return sin(u * PI.toFloat()).pow(0.6f)
     }
 
-    /** Parametrik süper otomobil gövdesi. N*M*2 üçgen. Vertex: pos3 nrm3 part1 */
+    /** Parametrik otomobil gövdesi. N*M*2 üçgen. Vertex: pos3 nrm3 part1 */
     fun car(s: CarSpec, N: Int, M: Int): Data {
         val L = s.len; val W = s.wid; val H = s.hgt
         val top = floatArrayOf(
@@ -42,7 +42,7 @@ object MeshGen {
         val vc = (N + 1) * M
         val pos = FloatArray(vc * 3)
         val part = FloatArray(vc)
-        val e = 2f / 3.4f
+        val e = 2f / 4.2f   // daha köşeli (gerçek araç gibi) kesit
         val twoPi = (2.0 * PI).toFloat()
         for (i in 0..N) {
             val t = i.toFloat() / N
@@ -72,8 +72,8 @@ object MeshGen {
                 if (sn > 0f && y > belt + 0.04f * H && t > s.cabS - 0.04f && t < s.cabE + 0.05f &&
                     !(sn > 0.9f && abs(t - s.roofT) < 0.08f)) p = 1f
                 else if (sn < -0.2f) p = 2f
-                if (t > 0.955f && abs(x) > 0.3f * W / 2f && y > 0.2f * H && y < 0.45f * H) p = 3f
-                if (t < 0.04f && y > 0.3f * H && y < 0.55f * H) p = 4f
+                if (t > 0.965f && abs(x) > 0.42f * W / 2f && y > 0.2f * H && y < 0.45f * H) p = 3f
+                if (t < 0.035f && abs(x) > 0.2f * W / 2f && y > 0.3f * H && y < 0.55f * H) p = 4f
                 part[idx] = p
             }
         }

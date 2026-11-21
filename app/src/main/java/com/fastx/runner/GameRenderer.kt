@@ -69,7 +69,7 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
     private lateinit var wheel: GpuMesh
     private var carHi: GpuMesh? = null
     private var carHiIdx = -1
-    private val carLo = arrayOfNulls<GpuMesh>(2)
+    private val carMid = arrayOfNulls<GpuMesh>(Game.CARS.size)
     private var bound: GpuMesh? = null
 
     private var roadVbo = 0
@@ -132,8 +132,7 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         pyr = MeshGen.upload(MeshGen.cone(4, false))
         cone = MeshGen.upload(MeshGen.cone(10, true))
         wheel = MeshGen.upload(MeshGen.wheel())
-        carLo[0] = MeshGen.upload(MeshGen.car(Game.TSEDAN, 48, 56))
-        carLo[1] = MeshGen.upload(MeshGen.car(Game.TSUV, 48, 56))
+        for (i in carMid.indices) carMid[i] = null
         carHi = null; carHiIdx = -1; bound = null
         fbo = 0; colorTex = 0; depthRb = 0; fboScale = 0f
 
@@ -278,6 +277,18 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         objDraw(cube, r, gg, b, er, eg, eb, win, 0f)
     }
 
+    /** Yola göre döndürülmüş kutu: merkez (cxl, y0, zl) etrafında yerel (lx, ly, lz) konumunda. */
+    private fun obox(cxl: Float, y0: Float, zl: Float, yaw: Float, lx: Float, ly: Float, lz: Float,
+                     sx: Float, sy: Float, sz: Float, r: Float, gg: Float, b: Float,
+                     er: Float = 0f, eg: Float = 0f, eb: Float = 0f) {
+        Matrix.setIdentityM(model, 0)
+        Matrix.translateM(model, 0, cxl, y0, zl)
+        Matrix.rotateM(model, 0, yaw, 0f, 1f, 0f)
+        Matrix.translateM(model, 0, lx, ly, lz)
+        Matrix.scaleM(model, 0, sx, sy, sz)
+        objDraw(cube, r, gg, b, er, eg, eb, 0f, 0f)
+    }
+
     private fun coneAt(m: GpuMesh, x: Float, y: Float, z: Float, w: Float, h: Float, yaw: Float, r: Float, gg: Float, b: Float) {
         Matrix.setIdentityM(model, 0)
         Matrix.translateM(model, 0, x, y, z)
@@ -325,11 +336,10 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         val sdn = sqrt(th.sunDir[0] * th.sunDir[0] + th.sunDir[1] * th.sunDir[1] + th.sunDir[2] * th.sunDir[2])
         sunD = floatArrayOf(th.sunDir[0] / sdn, th.sunDir[1] / sdn, th.sunDir[2] / sdn)
         val z = g.z
-        val dxdz = (g.cx(z + 2f) - g.cx(z - 2f)) / 4f
         carX = g.cx(z) + g.ox
         carY = g.cy(z)
         val sn = (g.speed / 90f).coerceIn(0f, 1.3f)
-        var fovT: Float
+        val fovT: Float
         if (g.menuLike) {
             val a = g.garageAngle
             val d = if (g.state == State.GARAGE) 6.4f else 7.8f
@@ -339,9 +349,9 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         } else {
             val back = 6.8f + sn * 1.8f
             val cz = z - back
-            val sh = g.shake * 0.5f + sn * 0.03f + (if (g.nitroOn) 0.06f else 0f)
-            ex = g.cx(cz) + g.ox * 0.8f + (Random.nextFloat() - 0.5f) * sh
-            ey = g.cy(cz) + 2.3f + sn * 0.4f + (Random.nextFloat() - 0.5f) * sh
+            val shk = g.shake * 0.5f + sn * 0.03f + (if (g.nitroOn) 0.06f else 0f)
+            ex = g.cx(cz) + g.ox * 0.8f + (Random.nextFloat() - 0.5f) * shk
+            ey = g.cy(cz) + 2.3f + sn * 0.4f + (Random.nextFloat() - 0.5f) * shk
             ez = cz
             tx = g.cx(z + 25f) + g.ox * 0.9f; ty = g.cy(z + 25f) + 1.0f; tz = z + 25f
             fovT = 56f + sn * 14f + (if (g.nitroOn) 8f else 0f)
@@ -364,7 +374,6 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         Matrix.perspectiveM(proj, 0, fovCur, asp, 0.4f, 1800f)
         Matrix.setLookAtM(view, 0, ex, ey, ez, tx, ty, tz, 0f, 1f, 0f)
         Matrix.multiplyMM(vp, 0, proj, 0, view, 0)
-        if (dxdz.isNaN()) return
     }
 
     private fun renderScene() {
@@ -397,8 +406,12 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         common(pObj)
         drawShadows()
         drawProps()
-        drawTraffic()
-        drawCoins()
+        if (!g.menuLike) {
+            drawFinish()
+            drawObstacles()
+            drawPickups()
+            drawRacers()
+        }
         drawPlayer()
         drawParticles()
     }
@@ -443,17 +456,31 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
             Matrix.scaleM(model, 0, w * 1.4f, 0.02f, l * 1.25f)
             objDraw(cube, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 2f)
         }
+        fun pad(x: Float, z: Float, w: Float, l: Float, yaw: Float) {
+            Matrix.setIdentityM(model, 0)
+            Matrix.translateM(model, 0, x, g.cy(z) + 0.03f, z)
+            Matrix.rotateM(model, 0, yaw, 0f, 1f, 0f)
+            Matrix.scaleM(model, 0, w, 0.02f, l)
+            objDraw(cube, 0f, 0f, 0f, 0f, 0f, 0f, 0f, 2f)
+        }
         val spec = Game.CARS[g.shownCar]
         val z = g.z
         val racing = !g.menuLike
         val yaw = if (racing) Math.toDegrees(atan((g.cx(z + 2f) - g.cx(z - 2f)) / 4f + g.ovx / max(g.speed, 8f)).toDouble()).toFloat() else 0f
         blob(carX, z, spec.wid, spec.len, yaw)
-        for (t in g.traffic) {
-            if (t.z > z + 300f) continue
-            val tw = if (t.type == 2) 2.5f else 1.9f
-            val tl = if (t.type == 2) 8f else 4.7f
-            val ty2 = Math.toDegrees(atan((g.cx(t.z + 2f) - g.cx(t.z - 2f)) / 4f).toDouble()).toFloat()
-            blob(g.cx(t.z) + t.x, t.z, tw, tl, ty2)
+        if (racing) {
+            for (a in g.ai) {
+                if (a.z > z + 350f || a.z < z - 20f) continue
+                val s2 = Game.CARS[a.spec]
+                val ya = Math.toDegrees(atan((g.cx(a.z + 2f) - g.cx(a.z - 2f)) / 4f).toDouble()).toFloat()
+                blob(g.cx(a.z) + a.x, a.z, s2.wid, s2.len, ya)
+            }
+            for (o in g.obstacles) {
+                if (o.type != 2 || o.z > z + 350f || o.z < z - 15f) continue
+                val yo = Math.toDegrees(atan((g.cx(o.z + 2f) - g.cx(o.z - 2f)) / 4f).toDouble()).toFloat()
+                pad(g.cx(o.z) + o.x, o.z, 2.6f, 3.6f, yo)
+                pad(g.cx(o.z) + o.x, o.z, 2.6f, 3.6f, yo)
+            }
         }
         GLES30.glDisable(GLES30.GL_POLYGON_OFFSET_FILL)
         GLES30.glDisable(GLES30.GL_BLEND)
@@ -486,7 +513,7 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
                     val r1 = hsh(k, sd * 10 + t * 3 + 1)
                     val r2 = hsh(k, sd * 10 + t * 3 + 2)
                     val r3 = hsh(k, sd * 10 + t * 3 + 3)
-                    val lat = sd * (15f + r1 * 50f)
+                    val lat = sd * (18f + r1 * 50f)
                     val zz = zk + r2 * 40f
                     val x = g.cx(zz) + lat
                     val y = g.groundY(zz, lat) - 1.2f
@@ -501,53 +528,121 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
                     val salt = sd * 20 + row * 7
                     val r1 = hsh(k, salt + 1); val r2 = hsh(k, salt + 2); val r3 = hsh(k, salt + 3)
                     val r4 = hsh(k, salt + 4); val r5 = hsh(k, salt + 5)
-                    val lat = sd * (if (row == 0) 28f + r1 * 30f else 75f + r1 * 55f)
+                    // binalar yoldan uzak durur ve yola göre hizalanır (yolun içine girmez)
+                    val lat = sd * (if (row == 0) 48f + r1 * 25f else 95f + r1 * 50f)
                     val zz = zk + r2 * 30f
-                    val w = 16f + r3 * 18f
+                    val w = 14f + r3 * 12f
                     val h = if (th.kind == 2) 20f + r4 * 28f else (if (row == 0) 40f + r4 * r4 * 150f else 90f + r4 * 180f)
                     val x = g.cx(zz) + lat
                     val y = g.cy(zz) - 4f
+                    val byaw = atan((g.cx(zz + 10f) - g.cx(zz - 10f)) / 20f) * deg
                     val cr: Float; val cg: Float; val cb: Float
                     if (th.kind == 2) { cr = 0.55f * (0.8f + r5 * 0.4f); cg = 0.4f * (0.8f + r5 * 0.4f); cb = 0.28f }
                     else { cr = 0.07f + r5 * 0.04f; cg = 0.08f + r5 * 0.04f; cb = 0.11f + r5 * 0.05f }
-                    box(x, y, zz, w, h + 4f, 22f, 0f, cr, cg, cb, 0f, 0f, 0f, win)
+                    box(x, y, zz, w, h + 4f, 22f, byaw, cr, cg, cb, 0f, 0f, 0f, win)
                     if (th.kind != 2 && r5 > 0.55f) {
                         val ci = (r5 * 10f).toInt() % 3
                         val er = if (ci == 0) 8f else if (ci == 1) 0.5f else 9f
                         val eg = if (ci == 0) 0.5f else if (ci == 1) 5f else 3f
                         val eb = if (ci == 0) 6f else if (ci == 1) 8f else 0.5f
-                        box(x, y + h + 4f, zz, w * 0.9f, 1.2f, 20f, 0f, 0.1f, 0.1f, 0.1f, er, eg, eb)
+                        box(x, y + h + 4f, zz, w * 0.9f, 1.2f, 20f, byaw, 0.1f, 0.1f, 0.1f, er, eg, eb)
                     }
                 }
             }
         }
-        // uzak dağlar, piramitler, kumullar
+        // uzak dağlar, piramitler, kumullar: tabanları yoldan en az ~170 m uzakta
         for (k in k0..k0 + 22) {
             val zk = k * 40f
             if (th.kind == 0 || th.kind == 3) {
                 if ((k and 1) != 0) continue
                 for (sd in sides) {
                     val r1 = hsh(k, sd * 5 + 41); val r2 = hsh(k, sd * 5 + 42)
-                    val lat = sd * (160f + r1 * 200f)
-                    val x = g.cx(zk) + lat
-                    val y = g.cy(zk) - 30f
                     if (th.kind == 3) {
                         val w = 250f + r2 * 250f; val h = 200f + r2 * 250f
+                        val lat = sd * (w * 0.5f + 170f + r1 * 120f)
+                        val x = g.cx(zk) + lat
+                        val y = g.cy(zk) - 30f
                         coneAt(cone, x, y, zk, w, h, 0f, 0.45f, 0.47f, 0.52f)
                         coneAt(cone, x, y + h * 0.62f, zk, w * 0.4f, h * 0.38f, 0f, 0.95f, 0.96f, 1f)
-                    } else coneAt(cone, x, y, zk, 200f + r2 * 200f, 70f + r2 * 90f, 0f, 0.1f, 0.14f, 0.09f)
+                    } else {
+                        val w = 200f + r2 * 200f
+                        val lat = sd * (w * 0.5f + 170f + r1 * 120f)
+                        coneAt(cone, g.cx(zk) + lat, g.cy(zk) - 30f, zk, w, 70f + r2 * 90f, 0f, 0.1f, 0.14f, 0.09f)
+                    }
                 }
             } else if (th.kind == 1) {
                 for (sd in sides) {
                     val r1 = hsh(k, sd * 5 + 51); val r2 = hsh(k, sd * 5 + 52)
                     if (k % 3 == 0) {
                         val w = 130f + r2 * 120f
-                        coneAt(pyr, g.cx(zk) + sd * (120f + r1 * 200f), g.cy(zk) - 8f, zk, w, w * 0.62f, r1 * 90f, 0.78f, 0.62f, 0.38f)
+                        val lat = sd * (w * 0.5f + 170f + r1 * 120f)
+                        coneAt(pyr, g.cx(zk) + lat, g.cy(zk) - 8f, zk, w, w * 0.62f, r1 * 90f, 0.78f, 0.62f, 0.38f)
                     } else if ((k and 1) == 0) {
-                        coneAt(cone, g.cx(zk) + sd * (70f + r1 * 150f), g.cy(zk) - 8f, zk, 140f + r2 * 80f, 14f + r2 * 20f, 0f, 0.72f, 0.54f, 0.3f)
+                        val w = 140f + r2 * 80f
+                        val lat = sd * (w * 0.5f + 170f + r1 * 100f)
+                        coneAt(cone, g.cx(zk) + lat, g.cy(zk) - 8f, zk, w, 14f + r2 * 20f, 0f, 0.72f, 0.54f, 0.3f)
                     }
                 }
             }
+        }
+    }
+
+    // ---------- yarış nesneleri ----------
+    private fun drawFinish() {
+        val deg = 57.29578f
+        val len = g.lapLen
+        for (k in 0..Game.LAPS) {
+            val zl = k * len
+            if (zl > ez + 450f || zl < ez - 25f) continue
+            val yaw = atan((g.cx(zl + 5f) - g.cx(zl - 5f)) / 10f) * deg
+            val cxl = g.cx(zl)
+            val y0 = g.cy(zl)
+            // dama deseni
+            for (r in 0..1) for (c in 0 until 16) {
+                val lx = -7.5f + c
+                val lz = if (r == 0) -0.5f else 0.5f
+                val v = if ((r + c) % 2 == 0) 0.02f else 0.92f
+                obox(cxl, y0 + 0.045f, zl, yaw, lx, 0f, lz, 1f, 0.05f, 1f, v, v, v)
+            }
+            // kapı: direkler ve üst kiriş
+            for (sd in intArrayOf(-1, 1)) obox(cxl, y0, zl, yaw, sd * 11.5f, 4f, 0f, 0.6f, 8f, 0.6f, 0.12f, 0.12f, 0.14f)
+            obox(cxl, y0, zl, yaw, 0f, 8.2f, 0f, 24f, 1.5f, 0.9f, 0.08f, 0.08f, 0.1f)
+            for (c in 0 until 24) {
+                val v = if (c % 2 == 0) 0.02f else 0.92f
+                obox(cxl, y0, zl, yaw, -11.5f + c, 8.2f, 0.5f, 1f, 1.2f, 0.12f, v, v, v, v * 0.6f, v * 0.6f, v * 0.6f)
+            }
+        }
+    }
+
+    private fun drawObstacles() {
+        val deg = 57.29578f
+        for (o in g.obstacles) {
+            if (o.z > ez + 420f || o.z < ez - 12f) continue
+            if (o.hit || o.type == 2) continue
+            val x = g.cx(o.z) + o.x
+            val y = g.cy(o.z)
+            val yaw = atan((g.cx(o.z + 2f) - g.cx(o.z - 2f)) / 4f) * deg
+            if (o.type == 0) {
+                box(x, y, o.z, 0.8f, 0.05f, 0.8f, yaw, 0.05f, 0.05f, 0.05f)
+                coneAt(cone, x, y + 0.05f, o.z, 0.7f, 0.8f, 0f, 1f, 0.35f, 0.02f)
+                coneAt(cone, x, y + 0.47f, o.z, 0.4f, 0.38f, 0f, 0.95f, 0.95f, 0.95f)
+            } else {
+                box(x, y, o.z, 3.4f, 0.9f, 0.7f, yaw, 0.62f, 0.62f, 0.64f)
+                box(x, y + 0.9f, o.z, 3.42f, 0.16f, 0.72f, yaw, 0.9f, 0.5f, 0.05f, 2.5f, 1.1f, 0.1f)
+            }
+        }
+    }
+
+    private fun drawPickups() {
+        val yaw = (tAcc * 160f) % 360f
+        for (p in g.pickups) {
+            if (p.taken || p.z > ez + 430f || p.z < ez - 10f) continue
+            val x = g.cx(p.z) + p.x
+            val y = g.cy(p.z)
+            val hov = 0.9f + sin(tAcc * 3f + p.z) * 0.12f
+            box(x, y + hov, p.z, 0.55f, 1.0f, 0.55f, yaw, 0.05f, 0.3f, 0.9f, 0.4f, 2.2f, 6f)
+            box(x, y + hov + 0.35f, p.z, 0.62f, 0.14f, 0.62f, yaw, 0.9f, 0.9f, 0.95f, 2f, 2f, 2f)
+            box(x, y, p.z, 0.2f, 7f, 0.2f, 0f, 0.1f, 0.4f, 1f, 0.3f, 1.4f, 4f)
         }
     }
 
@@ -557,6 +652,14 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         Matrix.rotateM(carM, 0, yaw, 0f, 1f, 0f)
         Matrix.rotateM(carM, 0, pitch, 1f, 0f, 0f)
         Matrix.rotateM(carM, 0, roll, 0f, 0f, 1f)
+    }
+
+    private fun part(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float,
+                     r: Float, gg: Float, b: Float, er: Float = 0f, eg: Float = 0f, eb: Float = 0f) {
+        System.arraycopy(carM, 0, model, 0, 16)
+        Matrix.translateM(model, 0, x, y, z)
+        Matrix.scaleM(model, 0, sx, sy, sz)
+        objDraw(cube, r, gg, b, er, eg, eb, 0f, 0f)
     }
 
     private fun drawCarMesh(mesh: GpuMesh, spec: CarSpec, col: FloatArray, steerDeg: Float, brake: Float) {
@@ -578,52 +681,34 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
             System.arraycopy(wm, 0, model, 0, 16)
             objDraw(wheel, 0.02f, 0.02f, 0.02f, 0f, 0f, 0f, 0f, 1f)
         }
+        // detaylar: dikiz aynaları, ön ızgara, plakalar, arka spoiler
+        val L = spec.len; val W = spec.wid; val H = spec.hgt
+        for (sd in intArrayOf(-1, 1)) {
+            part(sd * (W / 2f + 0.03f), 0.56f * H, (spec.cabE - 0.04f - 0.5f) * L, 0.16f, 0.1f, 0.22f, col[0], col[1], col[2])
+        }
+        part(0f, 0.25f * H, 0.5f * L - 0.03f, 0.5f * W, 0.11f * H, 0.07f, 0.01f, 0.01f, 0.012f)
+        part(0f, 0.23f * H, 0.5f * L - 0.01f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
+        part(0f, 0.3f * H, -0.5f * L + 0.01f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
+        part(0f, spec.tailH * H + 0.04f, -0.5f * L + 0.35f, 0.7f * W, 0.04f, 0.22f, col[0] * 0.5f, col[1] * 0.5f, col[2] * 0.5f)
         GLES30.glUniform1f(pObj.u("u_brake"), 0f)
     }
 
-    private fun drawTraffic() {
+    private fun drawRacers() {
         val deg = 57.29578f
-        for (t in g.traffic) {
-            if (t.z > ez + 430f || t.z < ez - 15f) continue
-            val x = g.cx(t.z) + t.x
-            val y = g.cy(t.z)
-            val yaw = atan((g.cx(t.z + 2f) - g.cx(t.z - 2f)) / 4f) * deg
-            val pitch = -atan((g.cy(t.z + 2f) - g.cy(t.z - 2f)) / 4f) * deg
-            if (t.type == 2) {
-                carMatrix(x, y, t.z, yaw, pitch, 0f)
-                System.arraycopy(carM, 0, model, 0, 16)
-                Matrix.translateM(model, 0, 0f, 0.5f + 1.6f, -0.9f)
-                Matrix.scaleM(model, 0, 2.5f, 3.2f, 6.2f)
-                objDraw(cube, 0.75f, 0.76f, 0.8f, 0f, 0f, 0f, 0f, 0f)
-                System.arraycopy(carM, 0, model, 0, 16)
-                Matrix.translateM(model, 0, 0f, 0.5f + 1.3f, 3.2f)
-                Matrix.scaleM(model, 0, 2.4f, 2.6f, 2.0f)
-                objDraw(cube, t.color[0], t.color[1], t.color[2], 0f, 0f, 0f, 0f, 0f)
-                for (sd in intArrayOf(-1, 1)) {
-                    System.arraycopy(carM, 0, model, 0, 16)
-                    Matrix.translateM(model, 0, sd * 0.9f, 1.0f, -4.05f)
-                    Matrix.scaleM(model, 0, 0.4f, 0.3f, 0.1f)
-                    objDraw(cube, 0.3f, 0f, 0f, 3.5f, 0.15f, 0.1f, 0f, 0f)
-                    System.arraycopy(carM, 0, model, 0, 16)
-                    Matrix.translateM(model, 0, sd * 1.15f, 0.45f, -2.5f)
-                    Matrix.scaleM(model, 0, 0.3f, 0.9f, 1.0f)
-                    objDraw(cube, 0.02f, 0.02f, 0.02f, 0f, 0f, 0f, 0f, 0f)
-                }
-            } else {
-                carMatrix(x, y, t.z, yaw, pitch, 0f)
-                drawCarMesh(carLo[t.type]!!, if (t.type == 0) Game.TSEDAN else Game.TSUV, t.color, 0f, 0f)
+        for (a in g.ai) {
+            if (a.z > ez + 450f || a.z < ez - 5f) continue
+            val x = g.cx(a.z) + a.x
+            val y = g.cy(a.z)
+            val yaw = atan((g.cx(a.z + 2f) - g.cx(a.z - 2f)) / 4f + a.vx / max(a.v, 8f)) * deg
+            val pitch = -atan((g.cy(a.z + 2f) - g.cy(a.z - 2f)) / 4f) * deg
+            var mesh = carMid[a.spec]
+            if (mesh == null) {
+                mesh = MeshGen.upload(MeshGen.car(Game.CARS[a.spec], 80, 110))
+                carMid[a.spec] = mesh
+                bound = null
             }
-        }
-    }
-
-    private fun drawCoins() {
-        val yaw = (tAcc * 180f) % 360f
-        for (c in g.coinList) {
-            if (c.taken || c.z > ez + 420f || c.z < ez - 10f) continue
-            val x = g.cx(c.z) + c.x
-            val y = g.cy(c.z) + 0.6f + sin(tAcc * 3f + c.z) * 0.15f
-            if (c.big) box(x, y, c.z, 0.9f, 0.9f, 0.9f, yaw, 0.1f, 0.5f, 0.7f, 0.3f, 2.5f, 4f)
-            else box(x, y, c.z, 1.1f, 1.1f, 0.12f, yaw, 1f, 0.75f, 0.1f, 3f, 2.2f, 0.3f)
+            carMatrix(x, y, a.z, yaw, pitch, 0f)
+            drawCarMesh(mesh, Game.CARS[a.spec], a.color, a.vx * 2f, 0f)
         }
     }
 
@@ -649,7 +734,6 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
     private fun rr() = Random.nextFloat()
 
     private fun emitParticles(dt: Float) {
-        val st = g.state
         if (g.menuLike) { lastCrash = g.crashCount; lastCoin = g.coinCount; return }
         val spec = Game.CARS[g.carSel]
         val z = g.z
@@ -683,9 +767,9 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         }
         if (g.coinCount != lastCoin) {
             lastCoin = g.coinCount
-            repeat(10) {
+            repeat(14) {
                 parts.add(0, g.coinX, g.cy(g.coinZ) + 1f, g.coinZ, (rr() - 0.5f) * 4f, rr() * 4f, (rr() - 0.5f) * 4f,
-                    0.5f, 0.12f, 0f, 3f, 2.2f, 0.4f, 1f, -4f, 0f)
+                    0.5f, 0.12f, 0f, 0.6f, 1.6f, 4f, 1f, -4f, 0f)
             }
         }
     }

@@ -12,7 +12,8 @@ class CarSpec(
     val len: Float, val wid: Float, val hgt: Float,
     val roofT: Float, val cabS: Float, val cabE: Float,
     val tailH: Float, val deckH: Float, val hoodH: Float, val noseH: Float,
-    val color: FloatArray
+    val color: FloatArray,
+    val model: String? = null
 )
 
 class Theme(
@@ -83,7 +84,8 @@ class Game(private val prefs: SharedPreferences) {
             CarSpec("Raptor S", 10000, 78f, 19f, 1.4f, 4.6f, 1.92f, 1.18f, 0.46f, 0.32f, 0.62f, 0.44f, 0.54f, 0.40f, 0.26f, f3(0.95f, 0.45f, 0.02f)),
             CarSpec("Phantom R", 20000, 86f, 21f, 1.6f, 4.7f, 1.95f, 1.15f, 0.45f, 0.33f, 0.62f, 0.42f, 0.52f, 0.38f, 0.24f, f3(0.02f, 0.02f, 0.025f)),
             CarSpec("Titan X", 38000, 93f, 23f, 1.8f, 4.8f, 2.0f, 1.14f, 0.44f, 0.34f, 0.60f, 0.42f, 0.52f, 0.36f, 0.23f, f3(0.85f, 0.85f, 0.9f)),
-            CarSpec("Apex One", 60000, 100f, 26f, 2.0f, 4.9f, 2.02f, 1.10f, 0.43f, 0.32f, 0.60f, 0.40f, 0.50f, 0.34f, 0.22f, f3(0.1f, 0.8f, 0.35f))
+            CarSpec("Apex One", 60000, 100f, 26f, 2.0f, 4.9f, 2.02f, 1.10f, 0.43f, 0.32f, 0.60f, 0.40f, 0.50f, 0.34f, 0.22f, f3(0.1f, 0.8f, 0.35f)),
+            CarSpec("Low Poly", 2500, 66f, 16f, 1.1f, 4.4f, 1.9f, 1.45f, 0.5f, 0.3f, 0.6f, 0.45f, 0.55f, 0.42f, 0.3f, f3(0.8f, 0.1f, 0.1f), "low_poly")
         )
         val THEMES = arrayOf(
             Theme("İskoçya", "Highlands", f3(0.18f, 0.27f, 0.42f), f3(0.55f, 0.6f, 0.66f), f3(0.45f, 0.38f, 0.8f), f3(2.4f, 2.1f, 1.7f), f3(0.07f, 0.15f, 0.05f), 0.0032f, 0f, 0.55f, false, 0.8f, 16f, 0, f3(1f, 1.02f, 1.05f)),

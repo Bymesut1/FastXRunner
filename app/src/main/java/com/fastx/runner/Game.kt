@@ -38,6 +38,8 @@ class Racer(val isPlayer: Boolean, var spec: Int, val name: String, val color: F
     var finishTime = 0f
     var nitro = 25f
     var nitroOn = false
+    var skill = 1f
+    var errT = 0f
 }
 
 class Pickup(val z: Float, val x: Float) { var taken = false }
@@ -69,6 +71,9 @@ class Game(private val prefs: SharedPreferences) {
         val RB_DN = floatArrayOf(0.06f, 0.04f, 0.02f)
         val AI_SEEK = floatArrayOf(2f, 4f, 7f)
         val AI_NITRO_START = floatArrayOf(50f, 35f, 22f)
+        val AI_ERR = floatArrayOf(0.12f, 0.06f, 0.025f)
+        val AI_MISS = floatArrayOf(0.35f, 0.2f, 0.08f)
+        val AI_SKILL_MIN = floatArrayOf(0.80f, 0.86f, 0.92f)
         val NAMES = arrayOf("Kaan", "Deniz", "Mert", "Ayşe", "Emre", "Selin", "Burak", "Elif")
         val PLACE_REWARD = intArrayOf(1200, 800, 600, 400, 300, 200, 150, 100)
         private fun f3(a: Float, b: Float, c: Float) = floatArrayOf(a, b, c)
@@ -335,6 +340,8 @@ class Game(private val prefs: SharedPreferences) {
                 r.think = rf(0f, 0.3f)
                 r.nitro = 25f
                 r.nitroOn = false
+                r.skill = rf(AI_SKILL_MIN[difficulty], 1f)
+                r.errT = 0f
                 list.add(r)
                 n++
             }
@@ -592,16 +599,27 @@ class Game(private val prefs: SharedPreferences) {
         a.v += spec.accel * 0.95f * (if (a.nitroOn) 1.9f else 1f) * (1f - r * r * r).coerceIn(-0.8f, 1f) * dt
         if (a.v < 0f) a.v = 0f
 
+        // hata yapma: dalgınlık (şerit/engel görmeme), kayma veya yanlış frenleme
+        if (a.errT > 0f) a.errT -= dt
+        else if (!a.finished && Random.nextFloat() < AI_ERR[difficulty] * (2f - a.skill) * dt) {
+            a.errT = rf(0.6f, 1.3f)
+            when (Random.nextInt(3)) {
+                0 -> a.vx += (if (Random.nextBoolean()) 1f else -1f) * rf(3f, 6f)
+                1 -> a.v *= 0.9f
+                else -> { }
+            }
+        }
+
         // şerit seçimi
         a.think -= dt
-        if (a.think <= 0f) {
-            a.think = 0.25f + rf(0f, 0.15f)
+        if (a.think <= 0f && a.errT <= 0f) {
+            a.think = 0.25f + rf(0f, 0.15f) + (1f - a.skill) * 0.8f
             var best = a.lane
             var bestP = 1e9f
             for (ln in LANES) {
                 var p = abs(ln - a.x) * 0.4f
                 if (ln != a.lane) p += 0.5f
-                val look = 25f + a.v * 0.8f
+                val look = (25f + a.v * 0.8f) * a.skill
                 for (o in obstacles) {
                     if (o.hit && o.type != 2) continue
                     val d = o.z - a.z
@@ -618,7 +636,8 @@ class Game(private val prefs: SharedPreferences) {
                     if (pk.taken) continue
                     val d = pk.z - a.z
                     if (d < 8f || d > 70f + a.v * 0.5f) continue
-                    if (abs(pk.x - ln) < 2.3f && a.nitro < 95f) p -= AI_SEEK[difficulty]
+                    val missed = (((pk.z * 7f).toInt() + a.name.hashCode()) and 0xFF) / 255f < AI_MISS[difficulty]
+                    if (!missed && abs(pk.x - ln) < 2.3f && a.nitro < 95f) p -= AI_SEEK[difficulty]
                 }
                 if (p < bestP) { bestP = p; best = ln }
             }

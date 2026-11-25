@@ -35,6 +35,8 @@ class Racer(val isPlayer: Boolean, var spec: Int, val name: String, val color: F
     var topMul = 1f
     var finished = false
     var finishTime = 0f
+    var nitro = 25f
+    var nitroOn = false
 }
 
 class Pickup(val z: Float, val x: Float) { var taken = false }
@@ -64,6 +66,8 @@ class Game(private val prefs: SharedPreferences) {
         val DIFF_MUL = floatArrayOf(0.80f, 0.90f, 0.99f)
         val RB_UP = floatArrayOf(0f, 0.03f, 0.06f)
         val RB_DN = floatArrayOf(0.06f, 0.04f, 0.02f)
+        val AI_SEEK = floatArrayOf(2f, 4f, 7f)
+        val AI_NITRO_START = floatArrayOf(50f, 35f, 22f)
         val NAMES = arrayOf("Kaan", "Deniz", "Mert", "Ayşe", "Emre", "Selin", "Burak", "Elif")
         val PLACE_REWARD = intArrayOf(1200, 800, 600, 400, 300, 200, 150, 100)
         private fun f3(a: Float, b: Float, c: Float) = floatArrayOf(a, b, c)
@@ -327,6 +331,8 @@ class Game(private val prefs: SharedPreferences) {
                 r.x = gx; r.z = gz; r.lane = gx
                 r.topMul = rf(0.95f, 1.05f)
                 r.think = rf(0f, 0.3f)
+                r.nitro = 25f
+                r.nitroOn = false
                 list.add(r)
                 n++
             }
@@ -558,14 +564,30 @@ class Game(private val prefs: SharedPreferences) {
 
     private fun aiStep(a: Racer, dt: Float) {
         val spec = CARS[a.spec]
-        if (state == State.COUNTDOWN) { a.v = 0f; a.vx = 0f; return }
-        var vt = aiTop(a)
+        if (state == State.COUNTDOWN) { a.v = 0f; a.vx = 0f; a.nitroOn = false; return }
+        // nitro kullanımı
+        if (a.finished || a.nitro <= 1f) a.nitroOn = false
+        else if (!a.nitroOn) {
+            val endgame = total - a.z < 450f
+            if (a.nitro >= AI_NITRO_START[difficulty] || (endgame && a.nitro > 5f)) a.nitroOn = true
+        }
+        if (a.nitroOn) {
+            var blocked = false
+            for (q in all) {
+                if (q === a) continue
+                val d = q.z - a.z
+                if (d > 0f && d < 14f && abs(q.x - a.x) < 2.2f) { blocked = true; break }
+            }
+            if (blocked && total - a.z > 450f) a.nitroOn = false else a.nitro -= 10f * dt
+        }
+        if (a.nitro < 0f) a.nitro = 0f
+        var vt = aiTop(a) * (if (a.nitroOn) 1.3f else 1f)
         val gap = a.z - me.z
         if (gap < -60f) vt *= 1f + RB_UP[difficulty] * min(1f, (-gap - 60f) / 200f)
         if (gap > 80f) vt *= 1f - RB_DN[difficulty] * min(1f, (gap - 80f) / 200f)
         if (a.finished) vt = 30f
         val r = a.v / max(vt, 1f)
-        a.v += spec.accel * 0.95f * (1f - r * r * r).coerceIn(-0.8f, 1f) * dt
+        a.v += spec.accel * 0.95f * (if (a.nitroOn) 1.9f else 1f) * (1f - r * r * r).coerceIn(-0.8f, 1f) * dt
         if (a.v < 0f) a.v = 0f
 
         // şerit seçimi
@@ -590,6 +612,12 @@ class Game(private val prefs: SharedPreferences) {
                     if (d < 0f || d > 30f) continue
                     if (abs(q.x - ln) < 2.3f && q.v < a.v + 5f) p += 8f
                 }
+                for (pk in pickups) {
+                    if (pk.taken) continue
+                    val d = pk.z - a.z
+                    if (d < 8f || d > 70f + a.v * 0.5f) continue
+                    if (abs(pk.x - ln) < 2.3f && a.nitro < 95f) p -= AI_SEEK[difficulty]
+                }
                 if (p < bestP) { bestP = p; best = ln }
             }
             a.lane = best
@@ -598,6 +626,17 @@ class Game(private val prefs: SharedPreferences) {
         a.vx += (dxl.coerceIn(-1f, 1f) * 5f - a.vx) * min(1f, dt * 4f)
         a.x += a.vx * dt
         a.z += a.v * dt
+
+        // nitro tüplerini kap
+        for (pk in pickups) {
+            if (pk.taken) continue
+            val dzp = pk.z - a.z
+            if (dzp > 6f || dzp < -6f) continue
+            if (abs(pk.x - a.x) < 2f && abs(dzp) < 3.5f) {
+                pk.taken = true
+                a.nitro = min(100f, a.nitro + 25f)
+            }
+        }
 
         // engel çarpması
         for (o in obstacles) {

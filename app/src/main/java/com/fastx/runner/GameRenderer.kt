@@ -744,6 +744,16 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
             parts.add(0, x, y, zz, (rr() - 0.5f) * 0.8f, rr() * 0.4f, -(3f + rr() * 4f), 0.3f, 0.28f, 2f, 4f, 1.6f, 0.4f, 1f, 0f, 0f)
             parts.add(0, x, y, zz, (rr() - 0.5f) * 0.3f, rr() * 0.2f, -(5f + rr() * 5f), 0.18f, 0.16f, 1f, 0.5f, 1f, 4f, 1f, 0f, 0f)
         }
+        for (a in g.ai) {
+            if (!a.nitroOn || a.z > z + 150f || a.z < z - 10f) continue
+            val s2 = Game.CARS[a.spec]
+            for (sd in intArrayOf(-1, 1)) {
+                val fx = g.cx(a.z) + a.x + sd * 0.5f
+                val fy = g.cy(a.z) + 0.45f
+                val fz = a.z - s2.len / 2f - 0.1f
+                parts.add(0, fx, fy, fz, (rr() - 0.5f) * 0.8f, rr() * 0.4f, -(3f + rr() * 4f), 0.3f, 0.28f, 2f, 4f, 1.6f, 0.4f, 1f, 0f, 0f)
+            }
+        }
         if (g.crashCount != lastCrash) {
             lastCrash = g.crashCount
             repeat(45) {

@@ -320,12 +320,18 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         post()
     }
 
+    private fun makeCar(i: Int, n: Int, m: Int): GpuMesh {
+        val sp = Game.CARS[i]
+        val txt = sp.model?.let { CarModels.get(it) }
+        return if (txt != null) MeshGen.upload(MeshGen.fromObj(txt, sp)) else MeshGen.upload(MeshGen.car(sp, n, m))
+    }
+
     private fun ensureMeshes() {
         val ci = g.shownCar
         if (ci != carHiIdx) {
             val old = carHi
             if (old != null) GLES30.glDeleteBuffers(2, intArrayOf(old.vbo, old.ibo), 0)
-            carHi = MeshGen.upload(MeshGen.car(Game.CARS[ci], 190, 240))
+            carHi = makeCar(ci, 190, 240)
             carHiIdx = ci
             bound = null
         }
@@ -681,8 +687,15 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
             System.arraycopy(wm, 0, model, 0, 16)
             objDraw(wheel, 0.02f, 0.02f, 0.02f, 0f, 0f, 0f, 0f, 1f)
         }
-        // detaylar: dikiz aynaları, ön ızgara, plakalar, arka spoiler
         val L = spec.len; val W = spec.wid; val H = spec.hgt
+        if (spec.model != null) {
+            // OBJ modelinde stop lambası yok: fren ışığıyla birlikte ekle
+            val bk = 1f + brake * 3.5f
+            for (sd in intArrayOf(-1, 1)) part(sd * 0.3f * W, 0.45f * H, -0.5f * L, 0.2f * W, 0.1f * H, 0.06f, 0.2f, 0f, 0f, 3.5f * bk, 0.15f * bk, 0.1f * bk)
+            GLES30.glUniform1f(pObj.u("u_brake"), 0f)
+            return
+        }
+        // detaylar: dikiz aynaları, ön ızgara, plakalar, arka spoiler
         for (sd in intArrayOf(-1, 1)) {
             part(sd * (W / 2f + 0.03f), 0.56f * H, (spec.cabE - 0.04f - 0.5f) * L, 0.16f, 0.1f, 0.22f, col[0], col[1], col[2])
         }
@@ -703,7 +716,7 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
             val pitch = -atan((g.cy(a.z + 2f) - g.cy(a.z - 2f)) / 4f) * deg
             var mesh = carMid[a.spec]
             if (mesh == null) {
-                mesh = MeshGen.upload(MeshGen.car(Game.CARS[a.spec], 80, 110))
+                mesh = makeCar(a.spec, 80, 110)
                 carMid[a.spec] = mesh
                 bound = null
             }

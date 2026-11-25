@@ -113,6 +113,84 @@ object MeshGen {
         return Data(out, idxA)
     }
 
+    /** OBJ metninden araç ağı üretir. Uzunluk X ekseni (ön +X), yukarı Y. Tekerlek malzemeleri atlanır (oyun kendi tekerleğini çizer). */
+    fun fromObj(text: String, s: CarSpec): Data {
+        val px = ArrayList<Float>(); val py = ArrayList<Float>(); val pz = ArrayList<Float>()
+        val faces = ArrayList<IntArray>()
+        val fpart = ArrayList<Float>()
+        var cur = 0f
+        var skip = false
+        for (raw in text.lineSequence()) {
+            val line = raw.trim()
+            if (line.isEmpty() || line[0] == '#') continue
+            val t = line.split(Regex("\\s+"))
+            when (t[0]) {
+                "v" -> { px.add(t[1].toFloat()); py.add(t[2].toFloat()); pz.add(t[3].toFloat()) }
+                "usemtl" -> {
+                    val n = if (t.size > 1) t[1].lowercase() else ""
+                    skip = false
+                    cur = when {
+                        n.contains("tire") || n.contains("tyre") || n.contains("wheel") || n.contains("rim") -> { skip = true; 0f }
+                        n.contains("glass") || n.contains("window") -> 1f
+                        n.contains("tail") || n.contains("brake") -> 4f
+                        n.contains("light") || n.contains("lamp") -> 3f
+                        else -> 0f
+                    }
+                }
+                "f" -> if (!skip) {
+                    val ids = IntArray(t.size - 1) { k ->
+                        val a = t[k + 1].split('/')[0].toInt()
+                        if (a < 0) px.size + a else a - 1
+                    }
+                    faces.add(ids); fpart.add(cur)
+                }
+            }
+        }
+        var minX = 1e9f; var maxX = -1e9f; var maxY = 0.001f; var minZ = 1e9f; var maxZ = -1e9f
+        var tris = 0
+        for (f in faces) {
+            if (f.size >= 3) tris += f.size - 2
+            for (i in f) {
+                minX = min(minX, px[i]); maxX = max(maxX, px[i])
+                maxY = max(maxY, py[i])
+                minZ = min(minZ, pz[i]); maxZ = max(maxZ, pz[i])
+            }
+        }
+        val xc = (minX + maxX) / 2f
+        val zc = (minZ + maxZ) / 2f
+        val sx = s.len / max(maxX - minX, 1e-4f)
+        val sz = s.wid / max(maxZ - minZ, 1e-4f)
+        val sy = s.hgt / maxY
+        val out = FloatArray(tris * 3 * 7)
+        var o = 0
+        val tp = FloatArray(9)
+        for ((fi, f) in faces.withIndex()) {
+            for (k in 1 until f.size - 1) {
+                val ids = intArrayOf(f[0], f[k], f[k + 1])
+                for (q in 0..2) {
+                    val i = ids[q]
+                    tp[q * 3] = -(pz[i] - zc) * sz
+                    tp[q * 3 + 1] = py[i] * sy
+                    tp[q * 3 + 2] = (px[i] - xc) * sx
+                }
+                val e1x = tp[3] - tp[0]; val e1y = tp[4] - tp[1]; val e1z = tp[5] - tp[2]
+                val e2x = tp[6] - tp[0]; val e2y = tp[7] - tp[1]; val e2z = tp[8] - tp[2]
+                var nx = e1y * e2z - e1z * e2y
+                var ny = e1z * e2x - e1x * e2z
+                var nz = e1x * e2y - e1y * e2x
+                val l = sqrt(nx * nx + ny * ny + nz * nz)
+                if (l < 1e-8f) { nx = 0f; ny = 1f; nz = 0f } else { nx /= l; ny /= l; nz /= l }
+                for (q in 0..2) {
+                    out[o++] = tp[q * 3]; out[o++] = tp[q * 3 + 1]; out[o++] = tp[q * 3 + 2]
+                    out[o++] = nx; out[o++] = ny; out[o++] = nz
+                    out[o++] = fpart[fi]
+                }
+            }
+        }
+        val idx = ShortArray(tris * 3) { it.toShort() }
+        return Data(out, idx)
+    }
+
     fun lathe(pr: FloatArray, parts: FloatArray, segs: Int): Data {
         val vl = ArrayList<Float>()
         val il = ArrayList<Short>()

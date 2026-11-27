@@ -32,11 +32,14 @@ object MeshGen {
     /** Parametrik otomobil gövdesi. N*M*2 üçgen. Vertex: pos3 nrm3 part1 */
     fun car(s: CarSpec, N: Int, M: Int): Data {
         val L = s.len; val W = s.wid; val H = s.hgt
+        // burun/kaput çok alçak olursa ön kısım ince bir kama gibi kalıyor: alt sınır koy
+        val hood = max(s.hoodH, 0.46f)
+        val nose = max(s.noseH, 0.40f)
         val top = floatArrayOf(
             0f, s.tailH, 0.08f, s.tailH + 0.04f, s.cabS, s.deckH,
             s.roofT - 0.09f, 0.93f, s.roofT, 1f, s.roofT + 0.09f, 0.93f,
-            s.cabE, s.hoodH + 0.12f, s.cabE + 0.08f, s.hoodH,
-            0.9f, s.noseH + 0.04f, 1f, s.noseH
+            s.cabE, hood + 0.12f, s.cabE + 0.08f, hood,
+            0.9f, nose + 0.04f, 1f, nose
         )
         val wid = floatArrayOf(0f, 0.80f, 0.12f, 0.96f, 0.3f, 1f, 0.62f, 0.98f, 0.82f, 0.93f, 1f, 0.84f)
         val vc = (N + 1) * M

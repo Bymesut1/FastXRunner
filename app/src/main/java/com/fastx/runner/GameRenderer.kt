@@ -506,7 +506,7 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
             for (q in 0..1) {
                 val zz = zk + 10f + q * 20f
                 val yaw = atan((g.cx(zz + 10f) - g.cx(zz - 10f)) / 20f) * deg
-                for (sd in sides) box(g.cx(zz) + sd * 8.9f, g.cy(zz), zz, 0.14f, 0.9f, 20.2f, yaw, 0.55f, 0.57f, 0.6f)
+                for (sd in sides) box(g.cx(zz) + sd * 8.9f, g.cy(zz), zz, 0.14f, 0.9f, 20.2f / max(0.55f, cos(yaw * 0.0174533f)), yaw, 0.55f, 0.57f, 0.6f)
             }
             for (sd in sides) {
                 val x = g.cx(zk) + sd * 10.2f
@@ -699,8 +699,17 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         for (sd in intArrayOf(-1, 1)) {
             part(sd * (W / 2f + 0.03f), 0.56f * H, (spec.cabE - 0.04f - 0.5f) * L, 0.16f, 0.1f, 0.22f, col[0], col[1], col[2])
         }
-        part(0f, 0.25f * H, 0.5f * L - 0.03f, 0.5f * W, 0.11f * H, 0.07f, 0.01f, 0.01f, 0.012f)
-        part(0f, 0.23f * H, 0.5f * L - 0.01f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
+        // ön yüz: burun yüksekliğine göre ızgara, alt hava girişi, far kabı ve far, tampon dudağı, plaka
+        val nb = 0.17f * H
+        val nh = max(spec.noseH, 0.40f) * H - nb
+        part(0f, nb + nh * 0.62f, 0.5f * L - 0.07f, 0.44f * W, nh * 0.26f, 0.1f, 0.01f, 0.01f, 0.012f)
+        part(0f, nb + nh * 0.22f, 0.5f * L - 0.07f, 0.6f * W, nh * 0.24f, 0.1f, 0.01f, 0.01f, 0.012f)
+        for (sd in intArrayOf(-1, 1)) {
+            part(sd * 0.25f * W, nb + nh * 0.66f, 0.5f * L - 0.09f, 0.2f * W, nh * 0.3f, 0.1f, 0.02f, 0.02f, 0.025f)
+            part(sd * 0.25f * W, nb + nh * 0.7f, 0.5f * L - 0.03f, 0.17f * W, nh * 0.1f, 0.05f, 0.9f, 0.9f, 0.85f, 6f, 6f, 5.5f)
+        }
+        part(0f, nb + nh * 0.02f, 0.5f * L - 0.12f, 0.8f * W, 0.05f, 0.2f, col[0] * 0.4f, col[1] * 0.4f, col[2] * 0.4f)
+        part(0f, nb + nh * 0.2f, 0.5f * L - 0.02f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
         part(0f, 0.3f * H, -0.5f * L + 0.01f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
         part(0f, spec.tailH * H + 0.04f, -0.5f * L + 0.35f, 0.7f * W, 0.04f, 0.22f, col[0] * 0.5f, col[1] * 0.5f, col[2] * 0.5f)
         GLES30.glUniform1f(pObj.u("u_brake"), 0f)

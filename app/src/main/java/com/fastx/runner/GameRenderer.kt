@@ -668,6 +668,14 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         objDraw(cube, r, gg, b, er, eg, eb, 0f, 0f)
     }
 
+    /** Araç boyasıyla (parlak gövde) çizilen blok: kaput ve tampon için. */
+    private fun partBody(x: Float, y: Float, z: Float, sx: Float, sy: Float, sz: Float, c: FloatArray) {
+        System.arraycopy(carM, 0, model, 0, 16)
+        Matrix.translateM(model, 0, x, y, z)
+        Matrix.scaleM(model, 0, sx, sy, sz)
+        objDraw(cube, c[0], c[1], c[2], 0f, 0f, 0f, 0f, 1f)
+    }
+
     private fun drawCarMesh(mesh: GpuMesh, spec: CarSpec, col: FloatArray, steerDeg: Float, brake: Float) {
         GLES30.glUniform1f(pObj.u("u_brake"), brake)
         System.arraycopy(carM, 0, model, 0, 16)
@@ -699,17 +707,22 @@ class GameRenderer(private val ctx: Context, private val g: Game) : GLSurfaceVie
         for (sd in intArrayOf(-1, 1)) {
             part(sd * (W / 2f + 0.03f), 0.56f * H, (spec.cabE - 0.04f - 0.5f) * L, 0.16f, 0.1f, 0.22f, col[0], col[1], col[2])
         }
-        // ön yüz: burun yüksekliğine göre ızgara, alt hava girişi, far kabı ve far, tampon dudağı, plaka
+        // ön yüz: kesin kapalı kaput + tampon bloğu (araç boyasıyla), üstüne ızgara, far ve plaka
         val nb = 0.17f * H
-        val nh = max(spec.noseH, 0.40f) * H - nb
-        part(0f, nb + nh * 0.62f, 0.5f * L - 0.07f, 0.44f * W, nh * 0.26f, 0.1f, 0.01f, 0.01f, 0.012f)
-        part(0f, nb + nh * 0.22f, 0.5f * L - 0.07f, 0.6f * W, nh * 0.24f, 0.1f, 0.01f, 0.01f, 0.012f)
+        val noseTop = max(spec.noseH, 0.40f) * H
+        val nh = noseTop - nb
+        val hz0 = (spec.cabE + 0.07f - 0.5f) * L
+        val hz1 = 0.465f * L
+        partBody(0f, (nb + noseTop - 0.015f) / 2f, (hz0 + hz1) / 2f, 0.78f * W, noseTop - 0.015f - nb, hz1 - hz0, col)
+        partBody(0f, nb + nh * 0.42f, 0.5f * L - 0.1f, 0.76f * W, nh * 0.84f, 0.2f, col)
+        part(0f, nb + nh * 0.64f, 0.5f * L + 0.005f, 0.44f * W, nh * 0.24f, 0.05f, 0.01f, 0.01f, 0.012f)
+        part(0f, nb + nh * 0.24f, 0.5f * L + 0.005f, 0.6f * W, nh * 0.22f, 0.05f, 0.01f, 0.01f, 0.012f)
         for (sd in intArrayOf(-1, 1)) {
-            part(sd * 0.25f * W, nb + nh * 0.66f, 0.5f * L - 0.09f, 0.2f * W, nh * 0.3f, 0.1f, 0.02f, 0.02f, 0.025f)
-            part(sd * 0.25f * W, nb + nh * 0.7f, 0.5f * L - 0.03f, 0.17f * W, nh * 0.1f, 0.05f, 0.9f, 0.9f, 0.85f, 6f, 6f, 5.5f)
+            part(sd * 0.27f * W, nb + nh * 0.68f, 0.5f * L, 0.2f * W, nh * 0.3f, 0.06f, 0.02f, 0.02f, 0.025f)
+            part(sd * 0.27f * W, nb + nh * 0.7f, 0.5f * L + 0.035f, 0.17f * W, nh * 0.1f, 0.03f, 0.9f, 0.9f, 0.85f, 6f, 6f, 5.5f)
         }
-        part(0f, nb + nh * 0.02f, 0.5f * L - 0.12f, 0.8f * W, 0.05f, 0.2f, col[0] * 0.4f, col[1] * 0.4f, col[2] * 0.4f)
-        part(0f, nb + nh * 0.2f, 0.5f * L - 0.02f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
+        part(0f, nb + nh * 0.02f, 0.5f * L - 0.02f, 0.82f * W, 0.05f, 0.3f, col[0] * 0.4f, col[1] * 0.4f, col[2] * 0.4f)
+        part(0f, nb + nh * 0.24f, 0.5f * L + 0.04f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
         part(0f, 0.3f * H, -0.5f * L + 0.01f, 0.2f, 0.07f, 0.03f, 0.9f, 0.9f, 0.85f)
         part(0f, spec.tailH * H + 0.04f, -0.5f * L + 0.35f, 0.7f * W, 0.04f, 0.22f, col[0] * 0.5f, col[1] * 0.5f, col[2] * 0.5f)
         GLES30.glUniform1f(pObj.u("u_brake"), 0f)

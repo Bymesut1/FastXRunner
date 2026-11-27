@@ -161,6 +161,19 @@ class UiView(ctx: Context, private val g: Game) : View(ctx) {
         text(c, "${g.myPlace()}/${Game.RACERS}", W * 0.03f, H * 0.255f, H * 0.1f, Color.WHITE)
         // hız (küçük)
         text(c, "${(g.speed * 3.6f).toInt()} KM/H", W * 0.34f, H * 0.085f, H * 0.05f, Color.WHITE, Paint.Align.CENTER)
+        if (g.state == State.RACING) {
+            val kk = g.curv(g.z + 60f)
+            if (abs(kk) > 0.006f) {
+                val al = (110 + (abs(kk) / 0.02f).coerceIn(0f, 1f) * 140f).toInt()
+                val ax = W / 2f; val ay = H * 0.24f; val s = H * 0.05f
+                clip.reset()
+                if (kk > 0f) { clip.moveTo(ax - s, ay); clip.lineTo(ax + s * 0.6f, ay - s); clip.lineTo(ax + s * 0.6f, ay + s) }
+                else { clip.moveTo(ax + s, ay); clip.lineTo(ax - s * 0.6f, ay - s); clip.lineTo(ax - s * 0.6f, ay + s) }
+                clip.close()
+                p.style = Paint.Style.FILL; p.color = Color.argb(al, 255, 200, 60)
+                c.drawPath(clip, p)
+            }
+        }
         if (g.msgT > 0f) {
             val a = (g.msgT.coerceAtMost(0.5f) / 0.5f * 255).toInt()
             text(c, g.msg, W / 2f, H * 0.34f, H * 0.07f, Color.argb(a, 255, 230, 80), Paint.Align.CENTER)

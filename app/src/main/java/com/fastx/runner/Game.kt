@@ -40,6 +40,8 @@ class Racer(val isPlayer: Boolean, var spec: Int, val name: String, val color: F
     var nitroOn = false
     var skill = 1f
     var errT = 0f
+    var hitCd = 0f
+    var oilT = 0f
 }
 
 class Pickup(val z: Float, val x: Float) { var taken = false }
@@ -64,6 +66,9 @@ class Game(private val prefs: SharedPreferences) {
         const val MAX_LEVEL = 50
         const val LAPS = 3
         const val RACERS = 8
+        const val SLOT = 420f
+        const val NSLOT = 64
+        const val GRIP = 40f
         val LANES = floatArrayOf(-6f, -2f, 2f, 6f)
         val DIFF_NAMES = arrayOf("KOLAY", "NORMAL", "ZOR")
         val DIFF_MUL = floatArrayOf(0.80f, 0.90f, 0.99f)
@@ -84,7 +89,7 @@ class Game(private val prefs: SharedPreferences) {
         )
 
         val CARS = arrayOf(
-            CarSpec("Sedan GT", 0, 62f, 15f, 1f, 4.85f, 1.86f, 1.42f, 0.47f, 0.26f, 0.64f, 0.55f, 0.62f, 0.48f, 0.30f, f3(0.62f, 0.63f, 0.66f)),
+            CarSpec("Sedan GT", 0, 62f, 15f, 1f, 4.85f, 1.86f, 1.42f, 0.47f, 0.26f, 0.64f, 0.60f, 0.64f, 0.58f, 0.50f, f3(0.62f, 0.63f, 0.66f)),
             CarSpec("Falcon RS", 4000, 70f, 17f, 1.2f, 4.5f, 1.88f, 1.22f, 0.48f, 0.30f, 0.64f, 0.46f, 0.56f, 0.42f, 0.27f, f3(0.03f, 0.2f, 0.75f)),
             CarSpec("Raptor S", 10000, 78f, 19f, 1.4f, 4.6f, 1.92f, 1.18f, 0.46f, 0.32f, 0.62f, 0.44f, 0.54f, 0.40f, 0.26f, f3(0.95f, 0.45f, 0.02f)),
             CarSpec("Phantom R", 20000, 86f, 21f, 1.6f, 4.7f, 1.95f, 1.15f, 0.45f, 0.33f, 0.62f, 0.42f, 0.52f, 0.38f, 0.24f, f3(0.02f, 0.02f, 0.025f)),
@@ -174,15 +179,82 @@ class Game(private val prefs: SharedPreferences) {
     var seed = 0f
     var cf = 1f
     var hf = 1f
+    private val cOff = FloatArray(NSLOT)
+    private val cLen = FloatArray(NSLOT)
+    private val cAmp = FloatArray(NSLOT)
+    private val cDir = FloatArray(NSLOT)
+    private val cCum = FloatArray(NSLOT + 1)
+
+    /** Dönemeçler (S virajlar): her 420 m'lik dilimde en fazla bir tane. */
+    private fun buildCorners() {
+        val rnd = java.util.Random(level * 7919L + 13L)
+        val kmax = min(0.024f, 0.012f + 0.0004f * level)
+        var cum = 0f
+        for (k in 0 until NSLOT) {
+            cCum[k] = cum
+            val has = k == 0 || rnd.nextFloat() < 0.8f
+            if (!has) {
+                cLen[k] = 0f; cAmp[k] = 0f; cDir[k] = 1f; cOff[k] = 0f
+                continue
+            }
+            var len = 110f + rnd.nextFloat() * 90f
+            if (k == 0) len = min(len, 180f)
+            val kap = kmax * (0.55f + 0.45f * rnd.nextFloat())
+            val amp = min(0.75f, kap * len / PI.toFloat())
+            cLen[k] = len
+            cAmp[k] = amp
+            cDir[k] = if (rnd.nextBoolean()) 1f else -1f
+            cOff[k] = if (k == 0) 180f else 60f + rnd.nextFloat() * (SLOT - len - 120f)
+            cum += cDir[k] * amp * len / 2f
+        }
+        cCum[NSLOT] = cum
+    }
+
+    private fun cornerX(z: Float): Float {
+        if (z <= 0f) return 0f
+        val k = (z / SLOT).toInt()
+        if (k >= NSLOT) return cCum[NSLOT]
+        var x = cCum[k]
+        val zl = z - k * SLOT - cOff[k]
+        if (zl > 0f && cLen[k] > 0f) {
+            val u = min(1f, zl / cLen[k])
+            val twoPi = 6.2831855f
+            x += cAmp[k] * cDir[k] * cLen[k] * (u / 2f - sin(twoPi * u) / (2f * twoPi))
+        }
+        return x
+    }
+
+    /** z noktası viraj bölgesinde mi (engeller buraya konmaz) */
+    fun inCorner(z: Float): Boolean {
+        if (z < 0f) return false
+        val k = (z / SLOT).toInt()
+        if (k >= NSLOT || cLen[k] <= 0f) return false
+        val a = k * SLOT + cOff[k] - 50f
+        val b = k * SLOT + cOff[k] + cLen[k] + 50f
+        return z >= a && z <= b
+    }
+
     fun cx(z: Float): Float {
         val s = z + seed
-        return cf * (sin(s * 0.0021f) * 60f + sin(s * 0.0053f + 1.3f) * 25f + sin(s * 0.011f + 2.1f) * 8f)
+        return 0.7f * cf * (sin(s * 0.0021f) * 60f + sin(s * 0.0053f + 1.3f) * 25f + sin(s * 0.011f + 2.1f) * 8f) + cornerX(z)
     }
     fun cy(z: Float): Float {
         val s = z + seed
         return hf * (sin(s * 0.0027f + 0.5f) * 9f + sin(s * 0.0071f) * 3f)
     }
     fun curv(z: Float) = (cx(z + 6f) - 2f * cx(z) + cx(z - 6f)) / 36f
+
+    /** Virajda taşınabilecek en yüksek hız. İç çizgi (virajın içine yakın) daha hızlı geçilir. */
+    fun cornerCap(zz: Float, x: Float, hnd: Float): Float {
+        val k = curv(zz)
+        val ak = abs(k)
+        if (ak < 0.0015f) return 999f
+        val inside = (x * sign(k) / 6f).coerceIn(-1f, 1f)
+        return sqrt(GRIP * hnd / ak) * (1f + 0.15f * inside)
+    }
+
+    /** İç çizgiden gidenin yolu kısadır: aynı hızda daha çok ilerler. */
+    fun lineGain(zz: Float, x: Float): Float = (1f + 0.6f * x * curv(zz)).coerceIn(0.92f, 1.08f)
     fun ter(x: Float, z: Float): Float =
         (sin(x * 0.011f + z * 0.006f) * 0.5f + 0.5f) * (sin(z * 0.009f - x * 0.007f + 1f) * 0.5f + 0.5f)
     fun groundY(z: Float, lat: Float): Float {
@@ -198,6 +270,7 @@ class Game(private val prefs: SharedPreferences) {
         seed = level * 913f
         cf = (0.6f + 0.025f * level).coerceAtMost(1.6f)
         hf = if (theme.kind == 3) 1.6f else 1f
+        buildCorners()
     }
 
     val lapLen: Float get() = min(3000f, 1500f + 60f * level)
@@ -235,7 +308,7 @@ class Game(private val prefs: SharedPreferences) {
     var skid = false
     var scrape = false
     var oilT = 0f
-    private var hitCd = 0f
+    private var overCap = false
     @Volatile var left = false
     @Volatile var right = false
     @Volatile var nitBtn = false
@@ -351,7 +424,7 @@ class Game(private val prefs: SharedPreferences) {
         arr.add(me); arr.addAll(list)
         all = arr.toTypedArray()
         me.vx = 0f; me.v = 0f; me.steer = 0f; me.finished = false; me.finishTime = 0f
-        nitro = 25f; health = 100f; raceTime = 0f; nitroGot = 0; oilT = 0f; hitCd = 0f
+        nitro = 25f; health = 100f; raceTime = 0f; nitroGot = 0; oilT = 0f; me.hitCd = 0f
         winnerName = ""; winnerTime = 0f
         buildTrack()
         cd = 3f; state = State.COUNTDOWN; beepCount++
@@ -366,6 +439,8 @@ class Game(private val prefs: SharedPreferences) {
         val density = min(1.6f, 1f + 0.02f * level + 0.12f * difficulty)
         var zz = 260f
         while (zz < tot - 120f) {
+            while (inCorner(zz) || inCorner(zz + 12f)) zz += 15f
+            if (zz >= tot - 120f) break
             val ln = Random.nextInt(4)
             val adj = if (ln < 3) ln + 1 else ln - 1
             val r = Random.nextFloat()
@@ -425,7 +500,7 @@ class Game(private val prefs: SharedPreferences) {
         time += dt
         msgT = max(0f, msgT - dt)
         shake = max(0f, shake - dt * 2.2f)
-        hitCd = max(0f, hitCd - dt)
+        for (r in all) { r.hitCd = max(0f, r.hitCd - dt); r.oilT = max(0f, r.oilT - dt) }
         if (theme.rain) {
             flashT -= dt
             if (flashT < 0f) { flash = 1f; flashT = rf(3f, 10f); thunderCount++ }
@@ -496,6 +571,14 @@ class Game(private val prefs: SharedPreferences) {
         }
         me.v -= 0.0009f * me.v * me.v * dt
         if (me.v < 0f) me.v = 0f
+        val hnd = 0.9f + 0.1f * spec.handling + 0.04f * han
+        val cap = cornerCap(me.z, me.x, hnd)
+        overCap = me.v > cap
+        if (overCap) {
+            val over = (me.v - cap) / cap
+            me.v -= (8f + 120f * over) * dt
+            if (over > 0.08f && msgT <= 0f) say("ÇOK HIZLI!")
+        }
 
         if (nitroOn) nitro -= 10f * dt / (1f + 0.12f * nit)
         nitro = nitro.coerceIn(0f, 100f)
@@ -519,9 +602,9 @@ class Game(private val prefs: SharedPreferences) {
             scrape = me.v > 8f
             shake = max(shake, 0.25f)
         }
-        skid = (abs(me.steer) > 0.6f && me.v > 35f) || (braking && me.v > 25f) || oilT > 0f
+        skid = (abs(me.steer) > 0.6f && me.v > 35f) || (braking && me.v > 25f) || oilT > 0f || overCap
 
-        me.z += me.v * dt
+        me.z += me.v * dt * lineGain(me.z, me.x)
 
         // vites / rpm
         val ratio = (me.v / (spec.top * 1.1f)).coerceIn(0f, 1f)
@@ -590,14 +673,45 @@ class Game(private val prefs: SharedPreferences) {
             if (blocked && total - a.z > 450f) a.nitroOn = false else a.nitro -= 10f * dt
         }
         if (a.nitro < 0f) a.nitro = 0f
+
+        // hedef hız
         var vt = aiTop(a) * (if (a.nitroOn) 1.3f else 1f)
         val gap = a.z - me.z
         if (gap < -60f) vt *= 1f + RB_UP[difficulty] * min(1f, (-gap - 60f) / 200f)
         if (gap > 80f) vt *= 1f - RB_DN[difficulty] * min(1f, (gap - 80f) / 200f)
         if (a.finished) vt = 30f
-        val r = a.v / max(vt, 1f)
-        a.v += spec.accel * 0.95f * (if (a.nitroOn) 1.9f else 1f) * (1f - r * r * r).coerceIn(-0.8f, 1f) * dt
+
+        // viraj öncesi frenleme (hata anında viraja fazla hızlı girerler)
+        val hnd = 0.9f + 0.1f * spec.handling
+        if (!a.finished && a.errT <= 0f) {
+            var allowed = 999f
+            var d = 0f
+            while (d <= 140f) {
+                val c = cornerCap(a.z + d, a.x, hnd)
+                val va = sqrt(c * c + 2f * 26f * d)
+                if (va < allowed) allowed = va
+                d += 20f
+            }
+            vt = min(vt, allowed * (0.95f + 0.12f * a.skill))
+        }
+        if (a.v > vt) a.v = max(vt, a.v - 30f * dt)
+        else {
+            val r = a.v / max(vt, 1f)
+            a.v += spec.accel * 0.95f * (if (a.nitroOn) 1.9f else 1f) * (1f - r * r * r).coerceIn(0f, 1f) * dt
+        }
         if (a.v < 0f) a.v = 0f
+
+        // virajda hız sınırını aşan da oyuncu gibi sürtünerek yavaşlar
+        val cap = cornerCap(a.z, a.x, hnd)
+        if (a.v > cap) {
+            val over = (a.v - cap) / cap
+            a.v -= (8f + 120f * over) * dt
+        }
+        // yağ lekesi
+        if (a.oilT > 0f) {
+            a.vx += sin(time * 11f + a.z) * 25f * dt
+            a.v = max(0f, a.v - 3f * dt)
+        }
 
         // hata yapma: dalgınlık (şerit/engel görmeme), kayma veya yanlış frenleme
         if (a.errT > 0f) a.errT -= dt
@@ -619,7 +733,7 @@ class Game(private val prefs: SharedPreferences) {
             for (ln in LANES) {
                 var p = abs(ln - a.x) * 0.4f
                 if (ln != a.lane) p += 0.5f
-                val look = (25f + a.v * 0.8f) * a.skill
+                val look = (15f + a.v * 0.5f) * a.skill
                 for (o in obstacles) {
                     if (o.hit && o.type != 2) continue
                     val d = o.z - a.z
@@ -643,10 +757,19 @@ class Game(private val prefs: SharedPreferences) {
             }
             a.lane = best
         }
+
+        // yanal hareket: virajda dışa savrulma oyuncudakiyle aynı
         val dxl = a.lane - a.x
         a.vx += (dxl.coerceIn(-1f, 1f) * 5f - a.vx) * min(1f, dt * 4f)
+        a.vx -= curv(a.z) * a.v * a.v * 0.22f * dt
         a.x += a.vx * dt
-        a.z += a.v * dt
+        val lim = 8f - spec.wid / 2f - 0.1f
+        if (abs(a.x) > lim) {
+            a.x = sign(a.x) * lim
+            a.vx = -a.vx * 0.25f
+            a.v = max(0f, a.v - 14f * dt)
+        }
+        a.z += a.v * dt * lineGain(a.z, a.x)
 
         // nitro tüplerini kap
         for (pk in pickups) {
@@ -659,15 +782,19 @@ class Game(private val prefs: SharedPreferences) {
             }
         }
 
-        // engel çarpması
+        // engellere çarpma: oyuncuyla aynı yavaşlama
         for (o in obstacles) {
-            if (o.type == 2 || o.hit) continue
             val dz = o.z - a.z
             if (dz < -4f || dz > 4f) continue
+            if (o.type == 2) {
+                if (a.oilT <= 0f && abs(o.x - a.x) < 1.9f && abs(dz) < 2.2f) a.oilT = 1.4f
+                continue
+            }
+            if (o.hit) continue
             val reach = if (o.type == 0) spec.wid / 2f + 0.35f else spec.wid / 2f + 1.6f
             if (abs(o.x - a.x) < reach) {
                 o.hit = true
-                a.v *= if (o.type == 0) 0.9f else 0.45f
+                a.v *= if (o.type == 0) 0.88f else 0.35f
             }
         }
 
@@ -693,15 +820,15 @@ class Game(private val prefs: SharedPreferences) {
             val rear = if (dz >= 0f) a else b
             val front = if (dz >= 0f) b else a
             rear.z = front.z - hz
-            if (rear.isPlayer) {
-                if (hitCd <= 0f) {
-                    hitCd = 0.9f
-                    health -= 6f + me.v * 0.06f
+            if (rear.hitCd <= 0f) {
+                rear.hitCd = 0.9f
+                if (rear.isPlayer) {
+                    health -= 6f + rear.v * 0.06f
                     shake = 1f
                     crashCount++
                     say("ÇARPMA!")
-                    me.v *= 0.3f
-                } else me.v = min(me.v, front.v)
+                }
+                rear.v *= 0.3f
             } else rear.v = min(rear.v, front.v)
         } else {
             val sg = if (dx >= 0f) 1f else -1f
@@ -709,14 +836,16 @@ class Game(private val prefs: SharedPreferences) {
             b.x += sg * penX * 0.5f
             a.vx = -sg * 2f
             b.vx = sg * 2f
-            if (a.isPlayer || b.isPlayer) {
-                me.v *= 0.985f
-                if (hitCd <= 0f) {
-                    hitCd = 0.5f
+            a.v *= 0.985f
+            b.v *= 0.985f
+            for (r in arrayOf(a, b)) {
+                if (r.hitCd > 0f) continue
+                r.hitCd = 0.5f
+                if (r.isPlayer) {
                     health -= 2f
                     shake = max(shake, 0.5f)
                     crashCount++
-                }
+                } else r.v *= 0.92f
             }
         }
     }
